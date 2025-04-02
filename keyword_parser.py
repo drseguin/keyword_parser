@@ -108,18 +108,29 @@ class keywordParser:
             
         if not self.excel_manager:
             return "[Excel manager not initialized]"
+        
+        # Get available sheet names for case-insensitive comparison
+        available_sheets = self.excel_manager.get_sheet_names()
+        sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
             
         # Check if the content contains a range (e.g., A1:C3)
         if ":" in content and "!" not in content.split(":")[1]:
             try:
                 # Handle sheet references like 'Sheet With Spaces'!A1:C3
                 if "!" in content:
-                    sheet_name, cell_range = content.split("!")
-                    sheet_name = sheet_name.strip("'")  # Remove single quotes
-                    return self.excel_manager.read_range(sheet_name, cell_range)
+                    parts = content.split("!")
+                    sheet_name = parts[0].strip("'")  # Remove single quotes
+                    cell_range = parts[1]
+                    
+                    # Case-insensitive sheet name lookup
+                    if sheet_name.lower() in sheet_name_map:
+                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
+                        return self.excel_manager.read_range(actual_sheet_name, cell_range)
+                    else:
+                        return f"[Sheet not found: {sheet_name}]"
                 else:
                     # Use the active sheet
-                    sheet_name = self.excel_manager.get_sheet_names()[0]
+                    sheet_name = available_sheets[0]
                     return self.excel_manager.read_range(sheet_name, content)
             except Exception as e:
                 return f"[Error reading range: {str(e)}]"
@@ -127,12 +138,19 @@ class keywordParser:
             try:
                 # Handle sheet references like 'Sheet With Spaces'!A1
                 if "!" in content:
-                    sheet_name, cell_ref = content.split("!")
-                    sheet_name = sheet_name.strip("'")  # Remove single quotes
-                    return self.excel_manager.read_cell(sheet_name, cell_ref)
+                    parts = content.split("!")
+                    sheet_name = parts[0].strip("'")  # Remove single quotes
+                    cell_ref = parts[1]
+                    
+                    # Case-insensitive sheet name lookup
+                    if sheet_name.lower() in sheet_name_map:
+                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
+                        return self.excel_manager.read_cell(actual_sheet_name, cell_ref)
+                    else:
+                        return f"[Sheet not found: {sheet_name}]"
                 else:
                     # Use the active sheet
-                    sheet_name = self.excel_manager.get_sheet_names()[0]
+                    sheet_name = available_sheets[0]
                     return self.excel_manager.read_cell(sheet_name, content)
             except Exception as e:
                 return f"[Error reading cell: {str(e)}]"
@@ -151,40 +169,48 @@ class keywordParser:
         if cache_key in self.input_cache:
             return self.input_cache[cache_key]
             
+        # Initialize session state for the input if not already done
+        if cache_key not in st.session_state:
+            st.session_state[cache_key] = ""
+
         # Handle different input types
         if len(parts) == 1:
             # Basic text input
-            user_input = st.text_area(f"Enter value for {field_name}:")
-            self.input_cache[cache_key] = user_input
-            return user_input
-            
+            user_input = st.text_area(f"Enter value for {field_name}:", value=st.session_state[cache_key])
+            if st.button('INSERT'):
+                st.session_state[cache_key] = user_input
+            return st.session_state[cache_key]
+
         input_type = parts[1].split(":", 1)[0].lower() if len(parts[1].split(":", 1)) > 1 else ""
         
         if input_type == "select":
             # Dropdown selection input
             options = parts[1].split(":", 1)[1].split(",") if len(parts[1].split(":", 1)) > 1 else []
-            selected = st.selectbox(f"Select a value for {field_name}", options)
-            self.input_cache[cache_key] = selected
-            return selected
-            
+            selected = st.selectbox(f"Select a value for {field_name}", options, index=options.index(st.session_state[cache_key]) if st.session_state[cache_key] in options else 0)
+            if st.button('INSERT'):
+                st.session_state[cache_key] = selected
+            return st.session_state[cache_key]
+
         elif input_type == "date":
             # Date input
             date_format = parts[1].split(":", 1)[1] if len(parts[1].split(":", 1)) > 1 else "YYYY-MM-DD"
-            selected_date = st.date_input(f"Select a date for {field_name}")
+            selected_date = st.date_input(f"Select a date for {field_name}", value=datetime.strptime(st.session_state[cache_key], "%Y-%m-%d") if st.session_state[cache_key] else datetime.now())
             
             # Format the date according to the specified format
             formatted_date = selected_date.strftime("%Y-%m-%d")  # Default format
             # More format mappings could be added here
             
-            self.input_cache[cache_key] = formatted_date
-            return formatted_date
-            
+            if st.button('INSERT'):
+                st.session_state[cache_key] = formatted_date
+            return st.session_state[cache_key]
+
         else:
             # Text input with default value
             default_value = parts[1]
-            user_input = st.text_area(f"Enter value for {field_name}", value=default_value)
-            self.input_cache[cache_key] = user_input
-            return user_input
+            user_input = st.text_area(f"Enter value for {field_name}", value=st.session_state[cache_key] or default_value)
+            if st.button('INSERT'):
+                st.session_state[cache_key] = user_input
+            return st.session_state[cache_key]
     
     def _process_conditional_keyword(self, content):
         """Process conditional (IF) keywords."""
@@ -308,16 +334,27 @@ class keywordParser:
             if content.startswith("XL:"):
                 range_ref = content[3:]
                 
+                # Get available sheet names for case-insensitive comparison
+                available_sheets = self.excel_manager.get_sheet_names()
+                sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
+                
                 # Handle sheet references
                 if "!" in range_ref:
-                    sheet_name, cell_range = range_ref.split("!")
-                    sheet_name = sheet_name.strip("'")  # Remove single quotes
+                    parts = range_ref.split("!")
+                    sheet_name = parts[0].strip("'")  # Remove single quotes
+                    cell_range = parts[1]
+                    
+                    # Case-insensitive sheet name lookup
+                    if sheet_name.lower() in sheet_name_map:
+                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
+                    else:
+                        return f"[Sheet not found: {sheet_name}]"
                 else:
-                    sheet_name = self.excel_manager.get_sheet_names()[0]
+                    actual_sheet_name = available_sheets[0]
                     cell_range = range_ref
                 
                 # Read the range
-                values = self.excel_manager.read_range(sheet_name, cell_range)
+                values = self.excel_manager.read_range(actual_sheet_name, cell_range)
                 
                 # Flatten the list and sum numeric values
                 flat_values = [item for sublist in values for item in sublist]
@@ -349,16 +386,27 @@ class keywordParser:
             if content.startswith("XL:"):
                 range_ref = content[3:]
                 
+                # Get available sheet names for case-insensitive comparison
+                available_sheets = self.excel_manager.get_sheet_names()
+                sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
+                
                 # Handle sheet references
                 if "!" in range_ref:
-                    sheet_name, cell_range = range_ref.split("!")
-                    sheet_name = sheet_name.strip("'")  # Remove single quotes
+                    parts = range_ref.split("!")
+                    sheet_name = parts[0].strip("'")  # Remove single quotes
+                    cell_range = parts[1]
+                    
+                    # Case-insensitive sheet name lookup
+                    if sheet_name.lower() in sheet_name_map:
+                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
+                    else:
+                        return f"[Sheet not found: {sheet_name}]"
                 else:
-                    sheet_name = self.excel_manager.get_sheet_names()[0]
+                    actual_sheet_name = available_sheets[0]
                     cell_range = range_ref
                 
                 # Read the range
-                values = self.excel_manager.read_range(sheet_name, cell_range)
+                values = self.excel_manager.read_range(actual_sheet_name, cell_range)
                 
                 # Flatten the list and calculate average of numeric values
                 flat_values = [item for sublist in values for item in sublist]
