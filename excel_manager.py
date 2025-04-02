@@ -213,6 +213,29 @@ class excelManager:
         
         return sheet_name, row, column
     
+    def _format_numeric_value(self, value, is_currency=False):
+        """
+        Format numeric values with commas and two decimal places.
+        
+        Args:
+            value: The value to format
+            is_currency: Whether to prepend a dollar sign
+            
+        Returns:
+            Formatted string for numbers, original value for non-numbers
+        """
+        if value is None:
+            return ''
+        
+        if isinstance(value, (int, float)):
+            # Format with commas and always show 2 decimal places
+            formatted_value = f"{value:,.2f}"
+            if is_currency:
+                return f"${formatted_value}"
+            return formatted_value
+        
+        return value
+    
     def read_cell(self, sheet_name, row_or_cell, column=None):
         """
         Read a cell value. 
@@ -249,26 +272,23 @@ class excelManager:
         sheet = self.workbook[sheet_name]
         value = sheet.cell(row=row, column=col).value
         
-        if value is None:
-            value = ''
-        elif isinstance(value, float):
-            value = round(value, 2)
-
-        # Check if cell is formatted as currency and prepend '$'
+        # Check if cell is formatted as currency
         formula_cell = self.formula_workbook[sheet_name].cell(row=row, column=col)
-        if formula_cell.number_format and '$' in formula_cell.number_format and isinstance(value, (int, float)):
-            value = "$" + str(value)
+        is_currency = formula_cell.number_format and '$' in formula_cell.number_format
+        
+        # Format the value
+        formatted_value = self._format_numeric_value(value, is_currency)
 
         # Get the formula (if any) from the formula workbook for logging
         formula = formula_cell.value
         
         cell_ref = f"{get_column_letter(col)}{row}"
         if isinstance(formula, str) and formula.startswith('='):
-            self.logger.info(f"Read calculated value '{value}' from cell {cell_ref} in sheet {sheet_name} (formula: {formula})")
+            self.logger.info(f"Read calculated value '{formatted_value}' from cell {cell_ref} in sheet {sheet_name} (formula: {formula})")
         else:
-            self.logger.info(f"Read value '{value}' from cell {cell_ref} in sheet {sheet_name}")
+            self.logger.info(f"Read value '{formatted_value}' from cell {cell_ref} in sheet {sheet_name}")
         
-        return value
+        return formatted_value
     
     def write_cell(self, sheet_name, row_or_cell, column=None, value=None):
         """
@@ -359,16 +379,14 @@ class excelManager:
             row_values = []
             for col in range(start_col, end_col + 1):
                 cell_val = sheet.cell(row=row, column=col).value
-                if cell_val is None:
-                    cell_val = ''
-                elif isinstance(cell_val, float):
-                    cell_val = round(cell_val, 2)
-
-                # Check if cell is formatted as currency and prepend '$'
+                
+                # Check if cell is formatted as currency
                 formula_cell = self.formula_workbook[sheet_name].cell(row=row, column=col)
-                if formula_cell.number_format and '$' in formula_cell.number_format and cell_val is not None and isinstance(cell_val, (int, float)):
-                    cell_val = "$" + str(cell_val)
-                row_values.append(cell_val)
+                is_currency = formula_cell.number_format and '$' in formula_cell.number_format
+                
+                # Format the value
+                formatted_val = self._format_numeric_value(cell_val, is_currency)
+                row_values.append(formatted_val)
             values.append(row_values)
         
         range_ref = f"{get_column_letter(start_col)}{start_row}:{get_column_letter(end_col)}{end_row}"
@@ -469,18 +487,16 @@ class excelManager:
             # we'll return the last non-empty cell value (which should be the total)
             if value is None or value == '':
                 if last_value is not None:
-                    # Format the value if needed
-                    if isinstance(last_value, float):
-                        last_value = round(last_value, 2)
-                    
-                    # Check if cell is formatted as currency and prepend '$'
+                    # Check if cell is formatted as currency
                     formula_cell = self.formula_workbook[sheet_name].cell(row=last_row, column=start_col)
-                    if formula_cell.number_format and '$' in formula_cell.number_format and isinstance(last_value, (int, float)):
-                        last_value = "$" + str(last_value)
+                    is_currency = formula_cell.number_format and '$' in formula_cell.number_format
+                    
+                    # Format the value
+                    formatted_value = self._format_numeric_value(last_value, is_currency)
                     
                     cell_ref = f"{get_column_letter(start_col)}{last_row}"
-                    self.logger.info(f"Found total value '{last_value}' at cell {cell_ref} in sheet {sheet_name}")
-                    return last_value
+                    self.logger.info(f"Found total value '{formatted_value}' at cell {cell_ref} in sheet {sheet_name}")
+                    return formatted_value
                 else:
                     # If we haven't found any non-empty cells, continue searching
                     current_row += 1
@@ -493,18 +509,16 @@ class excelManager:
         
         # If we reach the end of the sheet and have a value, return it
         if last_value is not None:
-            # Format the value if needed
-            if isinstance(last_value, float):
-                last_value = round(last_value, 2)
-            
-            # Check if cell is formatted as currency and prepend '$'
+            # Check if cell is formatted as currency
             formula_cell = self.formula_workbook[sheet_name].cell(row=last_row, column=start_col)
-            if formula_cell.number_format and '$' in formula_cell.number_format and isinstance(last_value, (int, float)):
-                last_value = "$" + str(last_value)
+            is_currency = formula_cell.number_format and '$' in formula_cell.number_format
+            
+            # Format the value
+            formatted_value = self._format_numeric_value(last_value, is_currency)
             
             cell_ref = f"{get_column_letter(start_col)}{last_row}"
-            self.logger.info(f"Found total value '{last_value}' at cell {cell_ref} in sheet {sheet_name} (at end of sheet)")
-            return last_value
+            self.logger.info(f"Found total value '{formatted_value}' at cell {cell_ref} in sheet {sheet_name} (at end of sheet)")
+            return formatted_value
         
         # If no non-empty cells were found
         self.logger.warning(f"No values found starting from {get_column_letter(start_col)}{start_row} in sheet {sheet_name}")
@@ -567,16 +581,14 @@ class excelManager:
             if value is None or value == '':
                 break
             
-            # Format the value if needed
-            if isinstance(value, float):
-                value = round(value, 2)
-            
-            # Check if cell is formatted as currency and prepend '$'
+            # Check if cell is formatted as currency
             formula_cell = self.formula_workbook[sheet_name].cell(row=current_row, column=start_col)
-            if formula_cell.number_format and '$' in formula_cell.number_format and isinstance(value, (int, float)):
-                value = "$" + str(value)
+            is_currency = formula_cell.number_format and '$' in formula_cell.number_format
             
-            items.append(value)
+            # Format the value
+            formatted_value = self._format_numeric_value(value, is_currency)
+            
+            items.append(formatted_value)
             current_row += 1
         
         # Apply the offset to exclude the specified number of rows from the end
@@ -592,3 +604,4 @@ class excelManager:
         self.logger.info(f"Read {len(items)} items from range {range_ref} in sheet {sheet_name} with offset {offset}")
         
         return items
+    
