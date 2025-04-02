@@ -234,8 +234,11 @@ if st.session_state.excel_manager is not None:
         if st.button("Parse Keywords"):
             if st.session_state.keyword_parser:
                 try:
-                    result = st.session_state.keyword_parser.parse(keyword_input)
+                    # Reset form state each time Parse is clicked
+                    st.session_state.keyword_parser.reset_form_state()
+                    
                     st.subheader("Result:")
+                    result = st.session_state.keyword_parser.parse(keyword_input)
                     st.write(result)
                 except Exception as e:
                     st.error(f"Error parsing keywords: {str(e)}")

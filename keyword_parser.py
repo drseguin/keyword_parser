@@ -21,7 +21,8 @@ class keywordParser:
         """
         self.excel_manager = excel_manager
         self.pattern = r'{{(.*?)}}'
-        self.input_cache = {}  # Cache for user inputs to avoid repeated prompts
+        self.has_input_fields = False
+        self.form_submitted = False
         
     def parse(self, input_string):
         """
@@ -38,21 +39,140 @@ class keywordParser:
             
         # Find all keywords in the input string
         matches = re.finditer(self.pattern, input_string)
-        result = input_string
+        self.has_input_fields = False
         
-        # Process each keyword
+        # First scan to check if there are any INPUT keywords
         for match in matches:
-            keyword = match.group(0)  # The full keyword with {{}}
             content = match.group(1)  # Just the content inside {{}}
+            parts = content.split(":", 1)
+            keyword_type = parts[0].strip().upper()
             
-            # Process the keyword and get its value
-            replacement = self._process_keyword(content)
+            if keyword_type == "INPUT":
+                self.has_input_fields = True
+                break
+        
+        # If we have input fields, use a form
+        if self.has_input_fields:
+            with st.form(key="input_form"):
+                # First pass - create all the UI elements but collect their values
+                matches = re.finditer(self.pattern, input_string)
+                input_values = {}
+                
+                for match in matches:
+                    keyword = match.group(0)  # The full keyword with {{}}
+                    content = match.group(1)  # Just the content inside {{}}
+                    
+                    # Check if it's an INPUT keyword
+                    parts = content.split(":", 1)
+                    keyword_type = parts[0].strip().upper()
+                    
+                    if keyword_type == "INPUT":
+                        # Process each input field and store its value
+                        value = self._create_input_field(content)
+                        input_values[keyword] = value
+                
+                # Add the submit button
+                submit_button = st.form_submit_button(label="Submit")
+                if submit_button:
+                    self.form_submitted = True
             
-            # Replace the keyword with its value in the result string
-            result = result.replace(keyword, str(replacement) if replacement is not None else "")
+            if not self.form_submitted:
+                # If the form hasn't been submitted yet, just return a placeholder message
+                return "Please fill in all fields and click Submit."
             
-        return result
+            # After form submission, process all keywords with collected input values
+            result = input_string
+            for keyword, value in input_values.items():
+                # Replace the keyword with its value in the result string
+                result = result.replace(keyword, str(value) if value is not None else "")
+            
+            # Process any non-INPUT keywords
+            matches = re.finditer(self.pattern, result)
+            for match in matches:
+                keyword = match.group(0)  # The full keyword with {{}}
+                content = match.group(1)  # Just the content inside {{}}
+                
+                # Skip already processed INPUT keywords
+                parts = content.split(":", 1)
+                keyword_type = parts[0].strip().upper()
+                if keyword_type != "INPUT":
+                    # Process the keyword and get its value
+                    replacement = self._process_keyword(content)
+                    # Replace the keyword with its value in the result string
+                    result = result.replace(keyword, str(replacement) if replacement is not None else "")
+            
+            return result
+        else:
+            # No input fields, process normally
+            result = input_string
+            matches = re.finditer(self.pattern, input_string)
+            for match in matches:
+                keyword = match.group(0)  # The full keyword with {{}}
+                content = match.group(1)  # Just the content inside {{}}
+                
+                # Process the keyword and get its value
+                replacement = self._process_keyword(content)
+                
+                # Replace the keyword with its value in the result string
+                result = result.replace(keyword, str(replacement) if replacement is not None else "")
+            
+            return result
     
+    def _create_input_field(self, content):
+        """Create an input field and return its current value."""
+        if not content:
+            return "[Invalid input reference]"
+            
+        # Split the content by colon to check for input type
+        parts = content.split(":", 1)
+        field_name = parts[0].strip()
+        
+        # Create a unique key for this input field
+        cache_key = f"INPUT:{content}"
+        
+        # Initialize session state if not already done
+        if cache_key not in st.session_state:
+            # Initialize based on input type
+            if len(parts) > 1 and not parts[1].startswith(("select:", "date:")):
+                # For text input with default value
+                st.session_state[cache_key] = parts[1]
+            else:
+                st.session_state[cache_key] = ""
+
+        # Handle different input types
+        if len(parts) == 1:
+            # Basic text input - don't use value parameter
+            value = st.text_input(f"Enter value for {field_name}:", key=cache_key)
+            return value
+
+        input_type = parts[1].split(":", 1)[0].lower() if len(parts[1].split(":", 1)) > 1 else ""
+        
+        if input_type == "select":
+            # Dropdown selection input
+            options = parts[1].split(":", 1)[1].split(",") if len(parts[1].split(":", 1)) > 1 else []
+            # Use index parameter instead of key/value combination
+            index = 0
+            if st.session_state[cache_key] in options:
+                index = options.index(st.session_state[cache_key])
+            value = st.selectbox(f"Select a value for {field_name}", options, index=index, key=cache_key)
+            return value
+
+        elif input_type == "date":
+            # Date input
+            date_format = parts[1].split(":", 1)[1] if len(parts[1].split(":", 1)) > 1 else "YYYY-MM-DD"
+            
+            # Initialize with current date
+            current_date = datetime.now()
+            value = st.date_input(f"Select a date for {field_name}", value=current_date, key=cache_key)
+            
+            # Format the date according to the specified format
+            return value.strftime("%Y-%m-%d")  # Default format
+
+        else:
+            # Text input with default value - don't set value parameter since it's in session state
+            value = st.text_input(f"Enter value for {field_name}", key=cache_key)
+            return value
+            
     def _process_keyword(self, content):
         """
         Process a single keyword content and return the corresponding value.
@@ -70,9 +190,9 @@ class keywordParser:
         if keyword_type == "XL":
             return self._process_excel_keyword(parts[1] if len(parts) > 1 else "")
             
-        # Process user input keywords
+        # Process user input keywords - these should already be handled
         elif keyword_type == "INPUT":
-            return self._process_input_keyword(parts[1] if len(parts) > 1 else "")
+            return "[Input field processed]"
             
         # Process range processing keywords
         elif keyword_type == "SUM":
@@ -147,68 +267,6 @@ class keywordParser:
             except Exception as e:
                 return f"[Error reading cell: {str(e)}]"
     
-    def _process_input_keyword(self, content):
-        """Process user input keywords."""
-        if not content:
-            return "[Invalid input reference]"
-            
-        # Split the content by colon to check for input type
-        parts = content.split(":", 1)
-        field_name = parts[0].strip()
-        
-        # Create a unique key for this input field
-        cache_key = f"INPUT:{content}"
-        
-        # Initialize session state for the input if not already done
-        if cache_key not in st.session_state:
-            st.session_state[cache_key] = ""
-
-        # Handle different input types
-        if len(parts) == 1:
-            # Basic text input
-            user_input = st.text_input(f"Enter value for {field_name}:", key=cache_key)
-            # Return the current value from session state - this will update when text_input changes
-            return user_input
-
-        input_type = parts[1].split(":", 1)[0].lower() if len(parts[1].split(":", 1)) > 1 else ""
-        
-        if input_type == "select":
-            # Dropdown selection input
-            options = parts[1].split(":", 1)[1].split(",") if len(parts[1].split(":", 1)) > 1 else []
-            selected = st.selectbox(f"Select a value for {field_name}", options, key=cache_key)
-            # Return the selected value directly
-            return selected
-
-        elif input_type == "date":
-            # Date input
-            date_format = parts[1].split(":", 1)[1] if len(parts[1].split(":", 1)) > 1 else "YYYY-MM-DD"
-            # Initialize with current date if empty
-            current_date = datetime.now()
-            if st.session_state[cache_key]:
-                try:
-                    current_date = datetime.strptime(st.session_state[cache_key], "%Y-%m-%d")
-                except ValueError:
-                    pass
-                    
-            selected_date = st.date_input(f"Select a date for {field_name}", value=current_date, key=f"{cache_key}_date")
-            
-            # Format the date according to the specified format
-            formatted_date = selected_date.strftime("%Y-%m-%d")  # Default format
-            # Update session state with the formatted date
-            st.session_state[cache_key] = formatted_date
-            
-            return formatted_date
-
-        else:
-            # Text input with default value
-            default_value = parts[1]
-            # Use the default value if session state is empty
-            if not st.session_state[cache_key]:
-                st.session_state[cache_key] = default_value
-                
-            user_input = st.text_input(f"Enter value for {field_name}", value=st.session_state[cache_key], key=cache_key)
-            return user_input
-            
     def _process_sum_keyword(self, content):
         """Process SUM range processing keywords."""
         if not content:
@@ -483,9 +541,17 @@ class keywordParser:
         except Exception as e:
             return f"[Error in JSON: {str(e)}]"
     
+    def reset_form_state(self):
+        """Reset the form submission state."""
+        self.form_submitted = False
+    
     def clear_input_cache(self):
         """Clear the cached user inputs."""
-        self.input_cache = {}
+        # Find all INPUT keys in session state and clear them
+        keys_to_clear = [key for key in st.session_state.keys() if key.startswith("INPUT:")]
+        for key in keys_to_clear:
+            st.session_state[key] = ""
+        self.form_submitted = False
 
     def get_keyword_help(self):
         """
@@ -541,3 +607,4 @@ class keywordParser:
         ```
         """
         return help_text
+    
