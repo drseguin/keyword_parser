@@ -74,10 +74,6 @@ class keywordParser:
         elif keyword_type == "INPUT":
             return self._process_input_keyword(parts[1] if len(parts) > 1 else "")
             
-        # Process conditional keywords
-        elif keyword_type == "IF":
-            return self._process_conditional_keyword(parts[1] if len(parts) > 1 else "")
-            
         # Process formatting keywords
         elif keyword_type == "FORMAT":
             return self._process_format_keyword(parts[1] if len(parts) > 1 else "")
@@ -211,60 +207,6 @@ class keywordParser:
             if st.button('INSERT'):
                 st.session_state[cache_key] = user_input
             return st.session_state[cache_key]
-    
-    def _process_conditional_keyword(self, content):
-        """Process conditional (IF) keywords."""
-        if not content or ":" not in content:
-            return "[Invalid IF condition]"
-            
-        try:
-            # Split into condition, then_text, and else_text
-            parts = content.split(":", 2)
-            if len(parts) < 3:
-                return "[Invalid IF statement format]"
-                
-            condition, then_text, else_text = parts
-            
-            # Handle XL conditions (e.g., XL:A1=10)
-            if condition.startswith("XL:"):
-                cell_ref = condition[3:]
-                comparison_parts = re.split(r'(=|!=|>|<|>=|<=)', cell_ref, 1)
-                
-                if len(comparison_parts) != 3:
-                    return "[Invalid comparison in IF condition]"
-                    
-                cell_ref, operator, value = comparison_parts
-                cell_value = self._process_excel_keyword(cell_ref.strip())
-                
-                # Try to convert the comparison value to the appropriate type
-                try:
-                    compare_value = type(cell_value)(value.strip())
-                except (ValueError, TypeError):
-                    compare_value = value.strip()
-                
-                # Evaluate the condition
-                if operator == "=":
-                    result = cell_value == compare_value
-                elif operator == "!=":
-                    result = cell_value != compare_value
-                elif operator == ">":
-                    result = cell_value > compare_value
-                elif operator == "<":
-                    result = cell_value < compare_value
-                elif operator == ">=":
-                    result = cell_value >= compare_value
-                elif operator == "<=":
-                    result = cell_value <= compare_value
-                else:
-                    return "[Invalid operator in IF condition]"
-                
-                # Return the appropriate text based on the condition
-                return then_text if result else else_text
-            
-            return "[Unsupported condition type in IF]"
-            
-        except Exception as e:
-            return f"[Error in IF condition: {str(e)}]"
     
     def _process_format_keyword(self, content):
         """Process formatting keywords."""
@@ -626,11 +568,6 @@ class keywordParser:
         {{INPUT:field_name:default}}  # With default value
         {{INPUT:date:YYYY-MM-DD}}     # Date input with format
         {{INPUT:select:option1,option2,option3}}  # Dropdown selection
-        ```
-
-        ### Conditional Keywords
-        ```
-        {{IF:XL:A1=value:then_text:else_text}}  # Conditional text
         ```
 
         ### Formatting Keywords
