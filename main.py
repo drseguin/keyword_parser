@@ -2,13 +2,17 @@ import streamlit as st
 import os
 import pandas as pd
 import tempfile
+import json
 from excel_manager import excelManager
+from keyword_parser import keywordParser
 
 st.title("Excel Manager App")
 
 # Initialize session state
 if 'excel_manager' not in st.session_state:
     st.session_state.excel_manager = None
+if 'keyword_parser' not in st.session_state:
+    st.session_state.keyword_parser = None
 if 'file_path' not in st.session_state:
     st.session_state.file_path = None
 if 'temp_dir' not in st.session_state:
@@ -17,6 +21,7 @@ if 'temp_dir' not in st.session_state:
 # Function to reset the app
 def reset_app():
     st.session_state.excel_manager = None
+    st.session_state.keyword_parser = None
     st.session_state.file_path = None
 
 # Sidebar for file operations
@@ -32,6 +37,7 @@ if uploaded_file is not None:
     
     # Initialize ExcelManager with the uploaded file
     st.session_state.excel_manager = excelManager(file_path)
+    st.session_state.keyword_parser = keywordParser(st.session_state.excel_manager)
     st.session_state.file_path = file_path
     st.sidebar.success(f"Loaded: {uploaded_file.name}")
 
@@ -44,6 +50,7 @@ if st.sidebar.button("Create New File") and new_file_name:
     file_path = os.path.join(st.session_state.temp_dir, new_file_name)
     st.session_state.excel_manager = excelManager()
     st.session_state.excel_manager.create_workbook(file_path)
+    st.session_state.keyword_parser = keywordParser(st.session_state.excel_manager)
     st.session_state.file_path = file_path
     st.sidebar.success(f"Created: {new_file_name}")
 
@@ -57,7 +64,7 @@ if st.session_state.excel_manager is not None:
     st.subheader("Excel File Management")
     
     # Tabs for different operations
-    tab1, tab2, tab3, tab4 = st.tabs(["Sheets", "Read", "Write", "Delete"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Sheets", "Read", "Write", "Delete", "Keywords"])
     
     with tab1:
         st.subheader("Sheet Operations")
@@ -201,6 +208,62 @@ if st.session_state.excel_manager is not None:
                 st.session_state.excel_manager.save()
             elif len(sheet_names) <= 1:
                 st.error("Cannot delete the only sheet in the workbook.")
+    
+    with tab5:
+        st.subheader("Keyword Parser")
+        
+        # Show help information
+        with st.expander("Keyword Help"):
+            if st.session_state.keyword_parser:
+                st.markdown(st.session_state.keyword_parser.get_keyword_help())
+        
+        # Input for keyword string
+        st.subheader("Parse Keywords")
+        keyword_input = st.text_area(
+            "Enter text with keywords to parse:",
+            "Hello, the value in cell A1 is {{XL:A1}}."
+        )
+        
+        # Clear input cache option
+        if st.button("Clear Input Cache"):
+            if st.session_state.keyword_parser:
+                st.session_state.keyword_parser.clear_input_cache()
+                st.success("Input cache cleared")
+        
+        # Parse button
+        if st.button("Parse Keywords"):
+            if st.session_state.keyword_parser:
+                try:
+                    result = st.session_state.keyword_parser.parse(keyword_input)
+                    st.subheader("Result:")
+                    st.write(result)
+                except Exception as e:
+                    st.error(f"Error parsing keywords: {str(e)}")
+            else:
+                st.error("Keyword parser not initialized")
+        
+        # Examples section
+        st.subheader("Keyword Examples")
+        examples = [
+            "Excel cell: {{XL:A1}}",
+            "Excel range: {{XL:A1:B3}}",
+            "Excel with sheet: {{XL:Sheet1!C5}}",
+            "User input: {{INPUT:username}}",
+            "User selection: {{INPUT:select:Red,Green,Blue}}",
+            "Date input: {{INPUT:date:YYYY-MM-DD}}",
+            "Conditional: {{IF:XL:A1=10:Value is 10:Value is not 10}}",
+            "Formatting: {{FORMAT:XL:B2:currency}}",
+            "Sum range: {{SUM:XL:A1:A10}}",
+            "Average range: {{AVG:XL:A1:A10}}",
+            "Hello, the total for your vacation is {{XL:F27}} for the entire trip."
+        ]
+        
+        selected_example = st.selectbox("Select an example:", examples)
+        
+        if st.button("Use Example"):
+            st.session_state.keyword_example = selected_example
+            # Use this to set the value in the text area on the next rerun
+            st.experimental_rerun()
     
     # Download the file
     if st.session_state.file_path:
