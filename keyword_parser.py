@@ -225,8 +225,34 @@ class keywordParser:
         available_sheets = self.excel_manager.get_sheet_names()
         sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
             
+        # Check if the content starts with ":" which indicates using read_total method
+        if content.startswith(":"):
+            # This is the new syntax for read_total() {{XL::A1}}
+            cell_ref = content[1:]  # Remove the leading colon
+            
+            try:
+                # Handle sheet references like 'Sheet With Spaces'!A1
+                if "!" in cell_ref:
+                    parts = cell_ref.split("!")
+                    sheet_name = parts[0].strip("'")  # Remove single quotes
+                    cell_ref = parts[1]
+                    
+                    # Case-insensitive sheet name lookup
+                    if sheet_name.lower() in sheet_name_map:
+                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
+                        return self.excel_manager.read_total(actual_sheet_name, cell_ref)
+                    else:
+                        return f"[Sheet not found: {sheet_name}]"
+                else:
+                    # Use the active sheet
+                    sheet_name = available_sheets[0]
+                    return self.excel_manager.read_total(sheet_name, cell_ref)
+            except Exception as e:
+                return f"[Error reading total: {str(e)}]"
+            
+        # Handle standard syntax for cell and range references
         # Check if the content contains a range (e.g., A1:C3)
-        if ":" in content and "!" not in content.split(":")[1]:
+        elif ":" in content and "!" not in content.split(":")[1]:
             try:
                 # Handle sheet references like 'Sheet With Spaces'!A1:C3
                 if "!" in content:
@@ -567,6 +593,8 @@ class keywordParser:
         ```
         {{XL:A1}}             # Basic cell reference
         {{XL:Sheet2!B5}}      # Reference with sheet name
+        {{XL::A1}}            # Find total value starting at A1 (traverses down to find last non-empty cell)
+        {{XL::Sheet2!B5}}     # Find total value starting at B5 in Sheet2 (traverses down to find last non-empty cell)
         {{XL:Sales!C3:C7}}    # Range of cells (returns concatenated values or list)
         {{XL:named_range}}    # Named range in Excel
         ```
@@ -607,4 +635,3 @@ class keywordParser:
         ```
         """
         return help_text
-    
