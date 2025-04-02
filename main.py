@@ -263,7 +263,7 @@ if st.session_state.excel_manager is not None:
         if st.button("Use Example"):
             st.session_state.keyword_example = selected_example
             # Use this to set the value in the text area on the next rerun
-            st.experimental_rerun()
+            st.rerun()
     
     # Download the file
     if st.session_state.file_path:
