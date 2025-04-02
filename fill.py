@@ -211,7 +211,10 @@ def main():
             
             if count > 0:
                 # Save the processed document
-                output_path = "processed_document.docx"
+                tmp_folder = "tmp"
+                if not os.path.exists(tmp_folder):
+                    os.makedirs(tmp_folder)
+                output_path = os.path.join(tmp_folder, "processed_document.docx")
                 processed_doc.save(output_path)
                 
                 # Provide download link
