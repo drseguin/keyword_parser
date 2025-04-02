@@ -10,6 +10,16 @@
         "cwd": "/Users/davidseguin/git/keyword_parser",
         "args": ["run", "/Users/davidseguin/git/keyword_parser/main.py"],
         "python": "/Users/davidseguin/git/keyword_parser/.venv/bin/python"
-    }
+    },
+    {
+        "name": "Fill",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "/Users/davidseguin/git/overwatch/.venv/lib/python3.11/site-packages/streamlit",
+        "console": "integratedTerminal",
+            "cwd": "/Users/davidseguin/git/keyword_parser",
+            "args": ["run", "/Users/davidseguin/git/keyword_parser/fill.py"],
+            "python": "/Users/davidseguin/git/keyword_parser/.venv/bin/python"
+        }    
     ]
 }
