@@ -156,11 +156,9 @@ class keywordParser:
         parts = content.split(":", 1)
         field_name = parts[0].strip()
         
-        # Check if we already have this input cached
+        # Create a unique key for this input field
         cache_key = f"INPUT:{content}"
-        if cache_key in self.input_cache:
-            return self.input_cache[cache_key]
-            
+        
         # Initialize session state for the input if not already done
         if cache_key not in st.session_state:
             st.session_state[cache_key] = ""
@@ -168,7 +166,8 @@ class keywordParser:
         # Handle different input types
         if len(parts) == 1:
             # Basic text input
-            user_input = st.text_area(f"Enter value for {field_name}:", key=cache_key)
+            user_input = st.text_input(f"Enter value for {field_name}:", key=cache_key)
+            # Return the current value from session state - this will update when text_input changes
             return user_input
 
         input_type = parts[1].split(":", 1)[0].lower() if len(parts[1].split(":", 1)) > 1 else ""
@@ -176,32 +175,40 @@ class keywordParser:
         if input_type == "select":
             # Dropdown selection input
             options = parts[1].split(":", 1)[1].split(",") if len(parts[1].split(":", 1)) > 1 else []
-            selected = st.selectbox(f"Select a value for {field_name}", options, index=options.index(st.session_state[cache_key]) if st.session_state[cache_key] in options else 0)
-            if st.button('INSERT'):
-                st.session_state[cache_key] = selected
-            return st.session_state[cache_key]
+            selected = st.selectbox(f"Select a value for {field_name}", options, key=cache_key)
+            # Return the selected value directly
+            return selected
 
         elif input_type == "date":
             # Date input
             date_format = parts[1].split(":", 1)[1] if len(parts[1].split(":", 1)) > 1 else "YYYY-MM-DD"
-            selected_date = st.date_input(f"Select a date for {field_name}", value=datetime.strptime(st.session_state[cache_key], "%Y-%m-%d") if st.session_state[cache_key] else datetime.now())
+            # Initialize with current date if empty
+            current_date = datetime.now()
+            if st.session_state[cache_key]:
+                try:
+                    current_date = datetime.strptime(st.session_state[cache_key], "%Y-%m-%d")
+                except ValueError:
+                    pass
+                    
+            selected_date = st.date_input(f"Select a date for {field_name}", value=current_date, key=f"{cache_key}_date")
             
             # Format the date according to the specified format
             formatted_date = selected_date.strftime("%Y-%m-%d")  # Default format
-            # More format mappings could be added here
+            # Update session state with the formatted date
+            st.session_state[cache_key] = formatted_date
             
-            if st.button('INSERT'):
-                st.session_state[cache_key] = formatted_date
-            return st.session_state[cache_key]
+            return formatted_date
 
         else:
             # Text input with default value
             default_value = parts[1]
-            user_input = st.text_area(f"Enter value for {field_name}", value=st.session_state[cache_key] or default_value)
-            if st.button('INSERT'):
-                st.session_state[cache_key] = user_input
-            return st.session_state[cache_key]
-    
+            # Use the default value if session state is empty
+            if not st.session_state[cache_key]:
+                st.session_state[cache_key] = default_value
+                
+            user_input = st.text_input(f"Enter value for {field_name}", value=st.session_state[cache_key], key=cache_key)
+            return user_input
+            
     def _process_sum_keyword(self, content):
         """Process SUM range processing keywords."""
         if not content:
