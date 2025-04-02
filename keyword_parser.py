@@ -168,10 +168,8 @@ class keywordParser:
         # Handle different input types
         if len(parts) == 1:
             # Basic text input
-            user_input = st.text_area(f"Enter value for {field_name}:", value=st.session_state[cache_key])
-            if st.button('INSERT'):
-                st.session_state[cache_key] = user_input
-            return st.session_state[cache_key]
+            user_input = st.text_area(f"Enter value for {field_name}:", key=cache_key)
+            return user_input
 
         input_type = parts[1].split(":", 1)[0].lower() if len(parts[1].split(":", 1)) > 1 else ""
         
