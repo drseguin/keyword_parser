@@ -241,29 +241,6 @@ if st.session_state.excel_manager is not None:
                     st.error(f"Error parsing keywords: {str(e)}")
             else:
                 st.error("Keyword parser not initialized")
-        
-        # Examples section
-        st.subheader("Keyword Examples")
-        examples = [
-            "Excel cell: {{XL:A1}}",
-            "Excel range: {{XL:A1:B3}}",
-            "Excel with sheet: {{XL:Sheet1!C5}}",
-            "User input: {{INPUT:username}}",
-            "User selection: {{INPUT:select:Red,Green,Blue}}",
-            "Date input: {{INPUT:date:YYYY-MM-DD}}",
-            "Conditional: {{IF:XL:A1=10:Value is 10:Value is not 10}}",
-            "Formatting: {{FORMAT:XL:B2:currency}}",
-            "Sum range: {{SUM:XL:A1:A10}}",
-            "Average range: {{AVG:XL:A1:A10}}",
-            "Hello, the total for your vacation is {{XL:F27}} for the entire trip."
-        ]
-        
-        selected_example = st.selectbox("Select an example:", examples)
-        
-        if st.button("Use Example"):
-            st.session_state.keyword_example = selected_example
-            # Use this to set the value in the text area on the next rerun
-            st.rerun()
     
     # Download the file
     if st.session_state.file_path:

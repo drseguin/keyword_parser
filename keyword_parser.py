@@ -112,9 +112,10 @@ class keywordParser:
         # Check if the content contains a range (e.g., A1:C3)
         if ":" in content and "!" not in content.split(":")[1]:
             try:
-                # Handle sheet references like Sheet2!A1:C3
+                # Handle sheet references like 'Sheet With Spaces'!A1:C3
                 if "!" in content:
                     sheet_name, cell_range = content.split("!")
+                    sheet_name = sheet_name.strip("'")  # Remove single quotes
                     return self.excel_manager.read_range(sheet_name, cell_range)
                 else:
                     # Use the active sheet
@@ -124,9 +125,10 @@ class keywordParser:
                 return f"[Error reading range: {str(e)}]"
         else:
             try:
-                # Handle sheet references like Sheet2!A1
+                # Handle sheet references like 'Sheet With Spaces'!A1
                 if "!" in content:
                     sheet_name, cell_ref = content.split("!")
+                    sheet_name = sheet_name.strip("'")  # Remove single quotes
                     return self.excel_manager.read_cell(sheet_name, cell_ref)
                 else:
                     # Use the active sheet
@@ -309,6 +311,7 @@ class keywordParser:
                 # Handle sheet references
                 if "!" in range_ref:
                     sheet_name, cell_range = range_ref.split("!")
+                    sheet_name = sheet_name.strip("'")  # Remove single quotes
                 else:
                     sheet_name = self.excel_manager.get_sheet_names()[0]
                     cell_range = range_ref
@@ -349,6 +352,7 @@ class keywordParser:
                 # Handle sheet references
                 if "!" in range_ref:
                     sheet_name, cell_range = range_ref.split("!")
+                    sheet_name = sheet_name.strip("'")  # Remove single quotes
                 else:
                     sheet_name = self.excel_manager.get_sheet_names()[0]
                     cell_range = range_ref
