@@ -74,10 +74,6 @@ class keywordParser:
         elif keyword_type == "INPUT":
             return self._process_input_keyword(parts[1] if len(parts) > 1 else "")
             
-        # Process formatting keywords
-        elif keyword_type == "FORMAT":
-            return self._process_format_keyword(parts[1] if len(parts) > 1 else "")
-            
         # Process range processing keywords
         elif keyword_type == "SUM":
             return self._process_sum_keyword(parts[1] if len(parts) > 1 else "")
@@ -207,64 +203,6 @@ class keywordParser:
             if st.button('INSERT'):
                 st.session_state[cache_key] = user_input
             return st.session_state[cache_key]
-    
-    def _process_format_keyword(self, content):
-        """Process formatting keywords."""
-        if not content or ":" not in content:
-            return "[Invalid FORMAT statement]"
-            
-        try:
-            # Split into value and format type
-            parts = content.split(":", 1)
-            value_part, format_part = parts
-            
-            # Handle Excel value
-            if value_part.startswith("XL:"):
-                value = self._process_excel_keyword(value_part[3:])
-            else:
-                value = value_part
-                
-            # Apply formatting
-            format_parts = format_part.split(":", 1)
-            format_type = format_parts[0].lower()
-            
-            if format_type == "currency":
-                try:
-                    return f"${float(value):.2f}"
-                except (ValueError, TypeError):
-                    return f"${value}"
-            
-            elif format_type == "date":
-                try:
-                    if isinstance(value, str):
-                        # Try to parse the date string
-                        date_obj = datetime.strptime(value, "%Y-%m-%d")
-                    else:
-                        # Assume it's already a date object
-                        date_obj = value
-                        
-                    # Apply the specified date format
-                    if len(format_parts) > 1:
-                        format_str = format_parts[1]
-                        # Map the format string to strftime format
-                        format_map = {
-                            "MM/DD/YY": "%m/%d/%y",
-                            "MM/DD/YYYY": "%m/%d/%Y",
-                            "DD/MM/YYYY": "%d/%m/%Y",
-                            "YYYY-MM-DD": "%Y-%m-%d"
-                        }
-                        date_format = format_map.get(format_str, "%Y-%m-%d")
-                        return date_obj.strftime(date_format)
-                    else:
-                        return date_obj.strftime("%Y-%m-%d")
-                except Exception:
-                    return value
-            
-            else:
-                return f"[Unknown format type: {format_type}]"
-                
-        except Exception as e:
-            return f"[Error in FORMAT: {str(e)}]"
     
     def _process_sum_keyword(self, content):
         """Process SUM range processing keywords."""
@@ -568,12 +506,6 @@ class keywordParser:
         {{INPUT:field_name:default}}  # With default value
         {{INPUT:date:YYYY-MM-DD}}     # Date input with format
         {{INPUT:select:option1,option2,option3}}  # Dropdown selection
-        ```
-
-        ### Formatting Keywords
-        ```
-        {{FORMAT:XL:B2:currency}}     # Format as currency
-        {{FORMAT:XL:C3:date:MM/DD/YY}}  # Format as date
         ```
 
         ### Range Processing
