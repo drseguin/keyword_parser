@@ -59,27 +59,36 @@ def process_word_doc(doc_path, excel_path):
     input_keywords = []
     input_locations = []
     
-    # Collect all INPUT keywords from paragraphs
-    for paragraph in doc.paragraphs:
+    # Create a unique identifier for each keyword occurrence
+    keyword_positions = {}
+    
+    # Collect all INPUT keywords from paragraphs with unique position identifiers
+    for para_idx, paragraph in enumerate(doc.paragraphs):
         matches = list(re.finditer(pattern, paragraph.text))
-        for match in matches:
+        for match_idx, match in enumerate(matches):
             keyword = match.group(0)
             content = match.group(1)
             if content.split(":", 1)[0].strip().upper() == "INPUT":
-                input_keywords.append(keyword)
+                # Assign a completely unique position ID
+                position_id = f"p{para_idx}_m{match_idx}"
+                keyword_positions[position_id] = keyword
+                input_keywords.append((position_id, keyword, content))
                 input_locations.append(("paragraph", paragraph, match.start(), match.end()))
     
-    # Collect all INPUT keywords from tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
+    # Collect all INPUT keywords from tables with unique position identifiers
+    for table_idx, table in enumerate(doc.tables):
+        for row_idx, row in enumerate(table.rows):
+            for cell_idx, cell in enumerate(row.cells):
+                for para_idx, paragraph in enumerate(cell.paragraphs):
                     matches = list(re.finditer(pattern, paragraph.text))
-                    for match in matches:
+                    for match_idx, match in enumerate(matches):
                         keyword = match.group(0)
                         content = match.group(1)
                         if content.split(":", 1)[0].strip().upper() == "INPUT":
-                            input_keywords.append(keyword)
+                            # Assign a completely unique position ID for table cells
+                            position_id = f"t{table_idx}_r{row_idx}_c{cell_idx}_p{para_idx}_m{match_idx}"
+                            keyword_positions[position_id] = keyword
+                            input_keywords.append((position_id, keyword, content))
                             input_locations.append(("table_cell", paragraph, match.start(), match.end()))
     
     # Store if we have any input keywords
@@ -89,7 +98,7 @@ def process_word_doc(doc_path, excel_path):
     input_values = {}
     
     # Create a form state storage key
-    form_key = f"form_processed_{hash(str(input_keywords))}"
+    form_key = f"form_processed_{doc_path}"
     if form_key not in st.session_state:
         st.session_state[form_key] = False
         
@@ -97,13 +106,12 @@ def process_word_doc(doc_path, excel_path):
         with st.form(key="document_input_form"):
             st.subheader("Please provide values for input fields:")
             
-            for i, keyword in enumerate(input_keywords):
-                # Extract the field name for better labels
-                content = re.match(pattern, keyword).group(1)
+            for i, (position_id, keyword, content) in enumerate(input_keywords):
+                # Extract the parts from the content
                 parts = content.split(":")
                 
-                # Generate a unique key for this input field
-                unique_key = f"input_{i}_{hash(keyword)}"
+                # Create a truly unique key for each input field based on position
+                unique_key = f"input_{position_id}"
                 
                 # Create appropriate input field based on the content
                 if len(parts) > 1:
@@ -139,11 +147,14 @@ def process_word_doc(doc_path, excel_path):
                 else:
                     value = st.text_input(f"Input {i+1}", key=unique_key)
                 
-                input_values[keyword] = value
+                # Store the value with the position ID
+                input_values[position_id] = value
             
             submit = st.form_submit_button("Submit")
             if submit:
                 st.session_state[form_key] = True
+                # Store the input values in session state for persistence
+                st.session_state[f"input_values_{doc_path}"] = input_values
             else:
                 st.info("Please fill in all fields and click Submit to continue.")
                 return None, 0  # Return None to indicate form is not submitted yet
@@ -151,6 +162,10 @@ def process_word_doc(doc_path, excel_path):
     # If we have inputs but form wasn't submitted yet, stop here
     if has_inputs and not st.session_state[form_key]:
         return None, 0
+    
+    # Retrieve stored input values if they exist
+    if has_inputs and f"input_values_{doc_path}" in st.session_state:
+        input_values = st.session_state[f"input_values_{doc_path}"]
     
     # We're now ready to process the document
     progress_text.text("Processing keywords...")
@@ -171,14 +186,24 @@ def process_word_doc(doc_path, excel_path):
                     if paragraph not in range_paragraphs:
                         range_paragraphs.append(paragraph)
     
+    # Create a reverse mapping from original keywords to position IDs
+    keyword_to_position = {}
+    for position_id, keyword in keyword_positions.items():
+        if keyword not in keyword_to_position:
+            keyword_to_position[keyword] = []
+        keyword_to_position[keyword].append(position_id)
+    
+    # Keep track of which occurrence of each keyword we're currently processing
+    keyword_counters = {}
+    
     # Now process all keywords in paragraphs, with special handling for range paragraphs
-    for paragraph in doc.paragraphs:
+    for para_idx, paragraph in enumerate(doc.paragraphs):
         # If this is a range paragraph that needs special handling for table insertion
         if paragraph in range_paragraphs:
             # Get all keywords in this paragraph
             matches = list(re.finditer(pattern, paragraph.text))
             
-            for match in matches:
+            for match_idx, match in enumerate(matches):
                 keyword = match.group(0)
                 content = match.group(1)
                 parts = content.split(":", 1)
@@ -221,9 +246,17 @@ def process_word_doc(doc_path, excel_path):
                         continue
                 
                 # Process non-range keywords
-                # If it's an INPUT keyword, use the value from our form
-                if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
-                    replacement = input_values[keyword]
+                # If it's an INPUT keyword we need to find its unique position ID
+                if content.split(":", 1)[0].strip().upper() == "INPUT":
+                    # Get position identifier for this specific occurrence
+                    position_id = f"p{para_idx}_m{match_idx}"
+                    
+                    if position_id in input_values:
+                        replacement = input_values[position_id]
+                    else:
+                        # Fallback to parser
+                        parser.set_word_document(None)
+                        replacement = parser.parse(keyword)
                 else:
                     # Otherwise parse the keyword normally
                     parser.set_word_document(None)  # Don't use direct table insertion
@@ -239,13 +272,22 @@ def process_word_doc(doc_path, excel_path):
         else:
             # This is a regular paragraph, process normally
             matches = list(re.finditer(pattern, paragraph.text))
-            for match in reversed(matches):  # Process in reverse to avoid index issues
+            for match_idx, match in enumerate(reversed(matches)):  # Process in reverse to avoid index issues
                 keyword = match.group(0)  # Full keyword with {{}}
                 content = match.group(1)  # Content inside {{}}
                 
-                # If it's an INPUT keyword, use the value from our form
-                if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
-                    replacement = input_values[keyword]
+                # Process based on the keyword type
+                if content.split(":", 1)[0].strip().upper() == "INPUT":
+                    # Calculate the correct match index for the original order (since we're iterating in reverse)
+                    orig_match_idx = len(matches) - 1 - match_idx
+                    position_id = f"p{para_idx}_m{orig_match_idx}"
+                    
+                    if position_id in input_values:
+                        replacement = input_values[position_id]
+                    else:
+                        # Fallback to parser
+                        parser.set_word_document(None)
+                        replacement = parser.parse(keyword)
                 else:
                     # Otherwise parse the keyword normally
                     parser.set_word_document(None)  # Don't use direct table insertion
@@ -259,22 +301,32 @@ def process_word_doc(doc_path, excel_path):
                 progress_bar.progress(processed_count / total_keywords)
                 progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
     
-    # Process tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
+    # Process tables with position tracking for input keywords
+    for table_idx, table in enumerate(doc.tables):
+        for row_idx, row in enumerate(table.rows):
+            for cell_idx, cell in enumerate(row.cells):
+                for para_idx, paragraph in enumerate(cell.paragraphs):
                     # Find all keywords in the paragraph
                     matches = list(re.finditer(pattern, paragraph.text))
                     
                     # Process each keyword
-                    for match in reversed(matches):  # Process in reverse to avoid index issues
+                    for match_idx, match in enumerate(reversed(matches)):  # Process in reverse to avoid index issues
                         keyword = match.group(0)  # Full keyword with {{}}
                         content = match.group(1)  # Content inside {{}}
                         
-                        # If it's an INPUT keyword, use the value from our form
-                        if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
-                            replacement = input_values[keyword]
+                        # Calculate the correct match index for the original order (since we're iterating in reverse)
+                        orig_match_idx = len(matches) - 1 - match_idx
+                        
+                        # Process based on the keyword type
+                        if content.split(":", 1)[0].strip().upper() == "INPUT":
+                            position_id = f"t{table_idx}_r{row_idx}_c{cell_idx}_p{para_idx}_m{orig_match_idx}"
+                            
+                            if position_id in input_values:
+                                replacement = input_values[position_id]
+                            else:
+                                # Fallback to parser
+                                parser.set_word_document(None)
+                                replacement = parser.parse(keyword)
                         else:
                             # For tables, don't use direct table insertion
                             parser.set_word_document(None)
@@ -333,7 +385,7 @@ def main():
             st.session_state.output_path = None
             st.session_state.processed_count = 0
             for key in list(st.session_state.keys()):
-                if key.startswith("form_processed_"):
+                if key.startswith("form_processed_") or key.startswith("input_values_"):
                     del st.session_state[key]
             st.rerun()
         
@@ -400,4 +452,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
