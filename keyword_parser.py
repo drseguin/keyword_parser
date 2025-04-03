@@ -4,7 +4,7 @@ import os
 import streamlit as st
 from datetime import datetime
 from excel_manager import excelManager
-from docx.shared import Pt
+from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 class keywordParser:
@@ -221,20 +221,20 @@ class keywordParser:
             return f"[Unknown keyword type: {keyword_type}]"
     
     def _process_excel_keyword(self, content):
-        """Process Excel-related keywords."""
+        """Process Excel-related keywords with improved table handling."""
         if not content:
             return "[Invalid Excel reference]"
-            
+                
         if not self.excel_manager:
             return "[Excel manager not initialized]"
         
         # Get available sheet names for case-insensitive comparison
         available_sheets = self.excel_manager.get_sheet_names()
         sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
-            
+                
         # Check if the content starts with ":" which indicates using read_total method
         if content.startswith(":"):
-            # This is the new syntax for read_total() {{XL::A1}}
+            # This is the syntax for read_total() {{XL::A1}}
             cell_ref = content[1:]  # Remove the leading colon
             
             try:
@@ -256,42 +256,47 @@ class keywordParser:
                     return self.excel_manager.read_total(sheet_name, cell_ref)
             except Exception as e:
                 return f"[Error reading total: {str(e)}]"
-            
+                
         # Handle standard syntax for cell and range references
         # Check if the content contains a range (e.g., A1:C3)
         elif ":" in content and "!" not in content.split(":")[1]:
+            # This is a range reference
             try:
                 # Handle sheet references like 'Sheet With Spaces'!A1:C3
+                sheet_name = available_sheets[0]  # Default to first sheet
+                cell_range = content
+                
                 if "!" in content:
                     parts = content.split("!")
-                    sheet_name = parts[0].strip("'")  # Remove single quotes
+                    sheet_ref = parts[0].strip("'")  # Remove single quotes
                     cell_range = parts[1]
                     
                     # Case-insensitive sheet name lookup
-                    if sheet_name.lower() in sheet_name_map:
-                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
-                        data = self.excel_manager.read_range(actual_sheet_name, cell_range)
+                    if sheet_ref.lower() in sheet_name_map:
+                        sheet_name = sheet_name_map[sheet_ref.lower()]
                     else:
-                        return f"[Sheet not found: {sheet_name}]"
-                else:
-                    # Use the active sheet
-                    sheet_name = available_sheets[0]
-                    data = self.excel_manager.read_range(sheet_name, content)
+                        return f"[Sheet not found: {sheet_ref}]"
+                
+                # Read the range data
+                data = self.excel_manager.read_range(sheet_name, cell_range)
                 
                 # Try to create a table if we have a document reference
-                if self.word_document:
+                if self.word_document and data:
                     try:
+                        # Always attempt to create a proper Word table
                         return self._create_word_table(data)
                     except Exception as e:
-                        # If table creation fails, fall back to text formatting
+                        # Log the error and fall back to text formatting
+                        print(f"Error creating Word table: {str(e)}")
                         return self._format_table(data)
                 else:
-                    # No document reference, just format as text
+                    # No document reference or no data, format as text
                     return self._format_table(data)
-                
+                    
             except Exception as e:
                 return f"[Error reading range: {str(e)}]"
         else:
+            # This is a single cell reference
             try:
                 # Handle sheet references like 'Sheet With Spaces'!A1
                 if "!" in content:
@@ -365,7 +370,7 @@ class keywordParser:
         
     def _create_word_table(self, data):
         """
-        Create a table directly in the Word document with manually added borders.
+        Create a visually appealing table directly in the Word document with proper styling.
         
         Args:
             data: A 2D list of data from Excel.
@@ -380,78 +385,80 @@ class keywordParser:
         num_rows = len(data)
         num_cols = max(len(row) for row in data)
         
-        # Create the table without specifying any style
+        # Create the table with the 'Table Grid' style for consistent borders
         table = self.word_document.add_table(rows=num_rows, cols=num_cols)
+        table.style = 'Table Grid'
         
-        # Add borders using direct XML modification
+        # Set overall table properties for better appearance
         try:
+            from docx.shared import Pt, Cm
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
             from docx.oxml import parse_xml
             from docx.oxml.ns import nsdecls
             
-            # Set border size (in twips)
-            border_size = 4
+            # Set the table to auto-fit contents
+            table.autofit = True
             
-            # Get the table XML element
-            tbl = table._tbl
+            # Set first row as header with distinct formatting
+            header_row = True
             
-            # Find or create tblPr (table properties)
-            tblPr = tbl.xpath('w:tblPr')
-            if not tblPr:
-                tblPr = parse_xml(f'<w:tblPr {nsdecls("w")}></w:tblPr>')
-                tbl.insert(0, tblPr)
-            else:
-                tblPr = tblPr[0]
+            # Fill the table with data and apply formatting
+            for i, row in enumerate(data):
+                for j, cell_value in enumerate(row):
+                    if j < len(row):  # Make sure we don't go out of bounds
+                        # Format the cell value
+                        if isinstance(cell_value, (int, float)):
+                            cell_text = f"{cell_value:,}"
+                        else:
+                            cell_text = str(cell_value)
+                        
+                        cell = table.cell(i, j)
+                        cell.text = cell_text
+                        
+                        # Apply padding to all cells
+                        for paragraph in cell.paragraphs:
+                            for run in paragraph.runs:
+                                run.font.size = Pt(10)  # Consistent font size
+                            
+                            # Add spacing within cells
+                            paragraph.paragraph_format.space_before = Pt(3)
+                            paragraph.paragraph_format.space_after = Pt(3)
+                        
+                        # Format header row (first row)
+                        if i == 0 and header_row:
+                            # Make header bold with light gray background
+                            cell.paragraphs[0].runs[0].font.bold = True
+                            
+                            # Add light gray shading to header row
+                            tcPr = cell._tc.get_or_add_tcPr()
+                            shading_elm = parse_xml(f'<w:shd {nsdecls("w")} w:fill="D9D9D9"/>')
+                            tcPr.append(shading_elm)
+                            
+                            # Center align header text
+                            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        
+                        # Right-align numbers for better readability
+                        elif isinstance(cell_value, (int, float)) or (
+                                isinstance(cell_value, str) and
+                                cell_value.replace(',', '').replace('.', '', 1).replace('$', '').isdigit()):
+                            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                        else:
+                            cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
             
-            # Create borders element
-            tblBorders = parse_xml(f'<w:tblBorders {nsdecls("w")}>' +
-                f'<w:top w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
-                f'<w:left w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
-                f'<w:bottom w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
-                f'<w:right w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
-                f'<w:insideH w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
-                f'<w:insideV w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
-                '</w:tblBorders>')
-            
-            # Add or replace borders
-            existing_borders = tblPr.xpath('w:tblBorders')
-            if existing_borders:
-                tblPr.remove(existing_borders[0])
-            tblPr.append(tblBorders)
-        except Exception as e:
-            # If borders can't be added, continue without them
-            pass
+            # Further table improvements
+            # Add subtle alternating row colors for better readability
+            for i in range(1, num_rows):
+                if i % 2 == 1:  # Odd rows (excluding header)
+                    for j in range(num_cols):
+                        cell = table.cell(i, j)
+                        tcPr = cell._tc.get_or_add_tcPr()
+                        shading_elm = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F5F5F5"/>')  # Very light gray
+                        tcPr.append(shading_elm)
         
-        # Fill the table with data
-        for i, row in enumerate(data):
-            for j, cell_value in enumerate(row):
-                if j < len(row):  # Make sure we don't go out of bounds
-                    # Format the cell value
-                    if isinstance(cell_value, (int, float)):
-                        cell_text = f"{cell_value:,}"
-                    else:
-                        cell_text = str(cell_value)
-                    
-                    cell = table.cell(i, j)
-                    cell.text = cell_text
-                    
-                    # Format header row (first row)
-                    if i == 0:
-                        try:
-                            for paragraph in cell.paragraphs:
-                                # Try to make header bold
-                                for run in paragraph.runs:
-                                    run.bold = True
-                        except:
-                            pass  # Skip if formatting fails
-                    
-                    # Right-align numbers
-                    try:
-                        from docx.enum.text import WD_ALIGN_PARAGRAPH
-                        if isinstance(cell_value, (int, float)) or (isinstance(cell_value, str) and cell_value.replace('.', '', 1).isdigit()):
-                            for paragraph in cell.paragraphs:
-                                paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                    except:
-                        pass  # Skip if alignment fails
+        except Exception as e:
+            # If enhanced formatting fails, continue with basic table
+            print(f"Warning: Some table formatting could not be applied: {str(e)}")
+            pass
         
         # Add a paragraph after the table for better spacing
         self.word_document.add_paragraph()
@@ -744,6 +751,7 @@ class keywordParser:
         for key in keys_to_clear:
             st.session_state[key] = ""
         self.form_submitted = False
+
 
     def get_keyword_help(self):
         """
