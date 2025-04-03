@@ -127,15 +127,35 @@ class keywordParser:
                 label_visibility="visible"
             )
         
-        # Handle text area - {{INPUT:area:label:value}}
+        # Handle text area - {{INPUT:area:label:value:height}}
         elif input_type == "area":
             label = tokens[2] if len(tokens) > 2 else ""
             default_value = tokens[3] if len(tokens) > 3 else ""
-            return st.text_area(
-                label=label, 
-                value=default_value, 
-                label_visibility="visible"
-            )
+            height_px = tokens[4] if len(tokens) > 4 else None
+            
+            # Convert height to integer if provided
+            height = None
+            if height_px:
+                try:
+                    height = int(height_px)
+                except ValueError:
+                    # If height is not a valid integer, ignore it
+                    pass
+            
+            # Set height if provided, otherwise use default
+            if height:
+                return st.text_area(
+                    label=label, 
+                    value=default_value, 
+                    height=height,
+                    label_visibility="visible"
+                )
+            else:
+                return st.text_area(
+                    label=label, 
+                    value=default_value, 
+                    label_visibility="visible"
+                )
         
         # Handle date input - {{INPUT:date:label:value:format}}
         elif input_type == "date":
@@ -841,7 +861,7 @@ class keywordParser:
         ### User Input Keywords
         ```
         {{INPUT:text:label:value}}              # Text input with label and default value
-        {{INPUT:area:label:value}}              # Text area (multi-line) with label and default value
+        {{INPUT:area:label:value:height}}       # Text area (multi-line) with label, default value, and optional height in pixels
         {{INPUT:date:label:value:format}}       # Date input with label, default date and format
                                                # Format can be "YYYY/MM/DD", "DD/MM/YYYY", or "MM/DD/YYYY"
                                                # Default value can be "today" or a date matching the format
