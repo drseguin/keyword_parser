@@ -1,259 +1,329 @@
 import streamlit as st
 import os
-import pandas as pd
+import re
+import docx
 import tempfile
-import json
 from excel_manager import excelManager
 from keyword_parser import keywordParser
 
-st.title("Excel Manager App")
-
-# Initialize session state
-if 'excel_manager' not in st.session_state:
-    st.session_state.excel_manager = None
-if 'keyword_parser' not in st.session_state:
-    st.session_state.keyword_parser = None
-if 'file_path' not in st.session_state:
-    st.session_state.file_path = None
-if 'temp_dir' not in st.session_state:
-    st.session_state.temp_dir = tempfile.mkdtemp()
-
-# Function to reset the app
-def reset_app():
-    st.session_state.excel_manager = None
-    st.session_state.keyword_parser = None
-    st.session_state.file_path = None
-
-# Sidebar for file operations
-st.sidebar.header("File Operations")
-
-# File upload
-uploaded_file = st.sidebar.file_uploader("Upload Excel file", type=["xlsx", "xls"])
-if uploaded_file is not None:
-    # Save uploaded file to temp directory
-    file_path = os.path.join(st.session_state.temp_dir, uploaded_file.name)
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+def process_word_doc(doc_path, excel_path):
+    """
+    Process a Word document, replacing keywords with values from Excel spreadsheet.
     
-    # Initialize ExcelManager with the uploaded file
-    st.session_state.excel_manager = excelManager(file_path)
-    st.session_state.keyword_parser = keywordParser(st.session_state.excel_manager)
-    st.session_state.file_path = file_path
-    st.sidebar.success(f"Loaded: {uploaded_file.name}")
-
-# Create new file
-new_file_name = st.sidebar.text_input("Or create a new file (name.xlsx):")
-if st.sidebar.button("Create New File") and new_file_name:
-    if not new_file_name.endswith(('.xlsx', '.xls')):
-        new_file_name += '.xlsx'
-    
-    file_path = os.path.join(st.session_state.temp_dir, new_file_name)
-    st.session_state.excel_manager = excelManager()
-    st.session_state.excel_manager.create_workbook(file_path)
-    st.session_state.keyword_parser = keywordParser(st.session_state.excel_manager)
-    st.session_state.file_path = file_path
-    st.sidebar.success(f"Created: {new_file_name}")
-
-# Reset app
-if st.sidebar.button("Reset"):
-    reset_app()
-    st.sidebar.success("Reset complete")
-
-# Main content
-if st.session_state.excel_manager is not None:
-    st.subheader("Excel File Management")
-    
-    # Tabs for different operations
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Sheets", "Read", "Write", "Delete", "Keywords"])
-    
-    with tab1:
-        st.subheader("Sheet Operations")
+    Args:
+        doc_path: Path to the Word document
+        excel_path: Path to the Excel spreadsheet
         
-        # Count sheets
-        if st.button("Count Sheets"):
-            count = st.session_state.excel_manager.count_sheets()
-            st.info(f"Number of sheets: {count}")
-        
-        # Get sheet names
-        if st.button("Get Sheet Names"):
-            names = st.session_state.excel_manager.get_sheet_names()
-            st.info(f"Sheet names: {', '.join(names)}")
-        
-        # Create new sheet
-        new_sheet_name = st.text_input("New sheet name:")
-        if st.button("Create Sheet") and new_sheet_name:
-            st.session_state.excel_manager.create_sheet(new_sheet_name)
-            st.success(f"Created sheet: {new_sheet_name}")
-            st.session_state.excel_manager.save()
+    Returns:
+        Processed document object and a count of replaced keywords
+    """
+    # Load the document
+    doc = docx.Document(doc_path)
     
-    with tab2:
-        st.subheader("Read Operations")
-        
-        # Select sheet
-        if st.session_state.excel_manager:
-            sheet_names = st.session_state.excel_manager.get_sheet_names()
-            selected_sheet = st.selectbox("Select sheet", sheet_names)
-            
-            # Read cell (using cell reference)
-            st.subheader("Read Cell")
-            cell_reference = st.text_input("Cell Reference (e.g. A1, B5):", "A1")
-            
-            if st.button("Read Cell"):
-                try:
-                    value = st.session_state.excel_manager.read_cell(selected_sheet, cell_reference)
-                    st.info(f"Cell value: {value}")
-                except Exception as e:
-                    st.error(f"Error reading cell: {str(e)}")
-            
-            # Read range
-            st.subheader("Read Range")
-            range_reference = st.text_input("Range Reference (e.g. A1:C5):", "A1:B5")
-            
-            if st.button("Read Range"):
-                try:
-                    values = st.session_state.excel_manager.read_range(selected_sheet, range_reference)
-                    # Convert to pandas DataFrame for better display
-                    df = pd.DataFrame(values)
-                    st.dataframe(df)
-                except Exception as e:
-                    st.error(f"Error reading range: {str(e)}")
-            
-            # Read total (new functionality)
-            st.subheader("Read Total")
-            total_start_reference = st.text_input("Starting Cell (e.g. A1, F25):", "A1", key="total_start_ref")
-            
-            if st.button("Find Total"):
-                try:
-                    total_value = st.session_state.excel_manager.read_total(selected_sheet, total_start_reference)
-                    if total_value is not None:
-                        st.info(f"Total value: {total_value}")
-                    else:
-                        st.warning("No total value found in this column.")
-                except Exception as e:
-                    st.error(f"Error finding total: {str(e)}")
-            
-            # Read items (new functionality)
-            st.subheader("Read Items")
-            items_start_reference = st.text_input("Starting Cell (e.g. A1, F25):", "A1", key="items_start_ref")
-            offset_value = st.number_input("Offset (rows to exclude from end):", min_value=0, value=0, key="offset_value")
-            
-            if st.button("Find Items"):
-                try:
-                    items = st.session_state.excel_manager.read_items(selected_sheet, items_start_reference, offset=offset_value)
-                    if items:
-                        st.info(f"Found {len(items)} items:")
-                        # Display items as a dataframe for better formatting
-                        df = pd.DataFrame({"Items": items})
-                        st.dataframe(df)
-                    else:
-                        st.warning("No items found starting from this cell.")
-                except Exception as e:
-                    st.error(f"Error finding items: {str(e)}")
+    # Initialize Excel manager
+    excel_mgr = excelManager(excel_path)
     
-    with tab3:
-        st.subheader("Write Operations")
-        
-        # Select sheet
-        if st.session_state.excel_manager:
-            sheet_names = st.session_state.excel_manager.get_sheet_names()
-            selected_sheet = st.selectbox("Select sheet", sheet_names, key="write_sheet")
+    # Initialize keyword parser with the Excel manager and pass the document reference
+    parser = keywordParser(excel_mgr)
+    parser.set_word_document(doc)
+    
+    # Compile regex pattern for keywords
+    pattern = r'{{(.*?)}}'
+    
+    # Count total keywords for progress tracking
+    total_keywords = 0
+    
+    # Count keywords in paragraphs
+    for paragraph in doc.paragraphs:
+        total_keywords += len(re.findall(pattern, paragraph.text))
+    
+    # Count keywords in tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    total_keywords += len(re.findall(pattern, paragraph.text))
+    
+    if total_keywords == 0:
+        st.warning("No keywords found in the document.")
+        return doc, 0
+    
+    # Initialize progress bar
+    progress_bar = st.progress(0)
+    progress_text = st.empty()
+    
+    # Counter for processed keywords
+    processed_count = 0
+    
+    # First handle all INPUT keywords with a single form if needed
+    input_keywords = []
+    input_locations = []
+    
+    # Collect all INPUT keywords from paragraphs
+    for paragraph in doc.paragraphs:
+        matches = list(re.finditer(pattern, paragraph.text))
+        for match in matches:
+            keyword = match.group(0)
+            content = match.group(1)
+            if content.split(":", 1)[0].strip().upper() == "INPUT":
+                input_keywords.append(keyword)
+                input_locations.append(("paragraph", paragraph, match.start(), match.end()))
+    
+    # Collect all INPUT keywords from tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    matches = list(re.finditer(pattern, paragraph.text))
+                    for match in matches:
+                        keyword = match.group(0)
+                        content = match.group(1)
+                        if content.split(":", 1)[0].strip().upper() == "INPUT":
+                            input_keywords.append(keyword)
+                            input_locations.append(("table_cell", paragraph, match.start(), match.end()))
+    
+    # If there are input keywords, process them all at once
+    input_values = {}
+    if input_keywords:
+        with st.form(key="document_input_form"):
+            st.subheader("Please provide values for input fields:")
             
-            # Write cell (using cell reference)
-            st.subheader("Write Cell")
-            cell_reference = st.text_input("Cell Reference (e.g. A1, B5):", "A1", key="write_cell_ref")
-            write_value = st.text_input("Value:", key="write_value")
+            for keyword in input_keywords:
+                # Extract the field name for better labels
+                content = re.match(pattern, keyword).group(1)
+                parts = content.split(":", 1)
+                field_name = parts[0].strip().replace("INPUT:", "")
+                
+                # Create appropriate input fields
+                if len(parts) > 1 and "select:" in parts[1]:
+                    options = parts[1].split("select:")[1].split(",")
+                    options = [opt.strip() for opt in options]
+                    value = st.selectbox(f"Select for {field_name}", options)
+                elif len(parts) > 1 and "date:" in parts[1]:
+                    value = st.date_input(f"Date for {field_name}")
+                    value = value.strftime("%Y-%m-%d")
+                else:
+                    default = parts[1].strip() if len(parts) > 1 else ""
+                    value = st.text_input(f"Enter {field_name}", value=default)
+                
+                input_values[keyword] = value
             
-            if st.button("Write Cell"):
-                try:
-                    st.session_state.excel_manager.write_cell(selected_sheet, cell_reference, write_value)
-                    st.success(f"Wrote '{write_value}' to cell {cell_reference}")
-                    st.session_state.excel_manager.save()
-                except Exception as e:
-                    st.error(f"Error writing cell: {str(e)}")
+            submit = st.form_submit_button("Submit")
+            if not submit:
+                st.stop()  # Stop execution until form is submitted
+    
+    # List to track table placeholders
+    table_placeholders = []
+    table_placeholder_index = 0
+    
+    # Track paragraphs with Excel range keywords to handle special table insertion
+    range_paragraphs = []
+    
+    # First scan to find paragraphs containing Excel range keywords
+    for paragraph in doc.paragraphs:
+        matches = list(re.finditer(pattern, paragraph.text))
+        for match in matches:
+            content = match.group(1)
+            parts = content.split(":", 1)
+            if parts[0].strip().upper() == "XL" and len(parts) > 1:
+                # Check if it's a range reference like A1:C3
+                if ":" in parts[1] and "!" not in parts[1].split(":", 1)[1]:
+                    # Store the paragraph for special handling
+                    if paragraph not in range_paragraphs:
+                        range_paragraphs.append(paragraph)
+    
+    # Now process all keywords in paragraphs, with special handling for range paragraphs
+    for paragraph in doc.paragraphs:
+        # If this is a range paragraph that needs special handling for table insertion
+        if paragraph in range_paragraphs:
+            # Get all keywords in this paragraph
+            matches = list(re.finditer(pattern, paragraph.text))
             
-            # Write range (using CSV input)
-            st.subheader("Write Range")
-            start_cell = st.text_input("Start Cell (e.g. A1):", "A1", key="range_start_cell")
-            
-            csv_data = st.text_area(
-                "Enter CSV data (comma-separated values, one row per line):",
-                "1,2,3\n4,5,6\n7,8,9"
-            )
-            
-            if st.button("Write Range"):
-                try:
-                    # Parse CSV data
-                    rows = []
-                    for line in csv_data.strip().split("\n"):
-                        values = line.split(",")
-                        rows.append(values)
+            for match in matches:
+                keyword = match.group(0)
+                content = match.group(1)
+                parts = content.split(":", 1)
+                
+                # Process Excel range keywords
+                if parts[0].strip().upper() == "XL" and len(parts) > 1:
+                    # If it's an Excel range reference
+                    if ":" in parts[1] and "!" not in parts[1].split(":", 1)[1]:
+                        try:
+                            # Get paragraph text and position
+                            orig_text = paragraph.text
+                            start_pos = match.start()
+                            end_pos = match.end()
+                            
+                            # Parse the keyword to potentially create a table
+                            parser.set_word_document(doc)
+                            replacement = parser.parse(keyword)
+                            
+                            # If a table was inserted
+                            if replacement == "[TABLE_INSERTED]":
+                                # Update the paragraph text to remove the keyword
+                                if start_pos == 0 and end_pos == len(orig_text):
+                                    # If keyword is the entire paragraph, empty it
+                                    paragraph.text = ""
+                                else:
+                                    # Otherwise remove just the keyword
+                                    paragraph.text = orig_text[:start_pos] + orig_text[end_pos:]
+                            else:
+                                # If table insertion failed, replace with text normally
+                                paragraph.text = orig_text[:start_pos] + str(replacement) + orig_text[end_pos:]
+                        except Exception as e:
+                            # Handle errors
+                            replacement = f"[Error: {str(e)}]"
+                            paragraph.text = paragraph.text[:match.start()] + replacement + paragraph.text[match.end():]
+                        
+                        # Update progress
+                        processed_count += 1
+                        progress_bar.progress(processed_count / total_keywords)
+                        progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
+                        continue
+                
+                # Process non-range keywords normally
+                if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
+                    replacement = input_values[keyword]
+                else:
+                    parser.set_word_document(None)  # Don't use direct table insertion
+                    replacement = parser.parse(keyword)
+                
+                # Replace the keyword in the paragraph text
+                paragraph.text = paragraph.text[:match.start()] + str(replacement) + paragraph.text[match.end():]
+                
+                # Update progress
+                processed_count += 1
+                progress_bar.progress(processed_count / total_keywords)
+                progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
+        else:
+            # This is a regular paragraph, process normally
+            matches = list(re.finditer(pattern, paragraph.text))
+            for match in reversed(matches):  # Process in reverse to avoid index issues
+                keyword = match.group(0)  # Full keyword with {{}}
+                content = match.group(1)  # Content inside {{}}
+                
+                # If it's an INPUT keyword, use the value from our form
+                if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
+                    replacement = input_values[keyword]
+                else:
+                    # Otherwise parse the keyword normally
+                    parser.set_word_document(None)  # Don't use direct table insertion
+                    replacement = parser.parse(keyword)
+                
+                # Replace the keyword in the paragraph text
+                paragraph.text = paragraph.text[:match.start()] + str(replacement) + paragraph.text[match.end():]
+                
+                # Update progress
+                processed_count += 1
+                progress_bar.progress(processed_count / total_keywords)
+                progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
+    
+    # Process tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    # Find all keywords in the paragraph
+                    matches = list(re.finditer(pattern, paragraph.text))
                     
-                    st.session_state.excel_manager.write_range(selected_sheet, start_cell, rows)
-                    st.success(f"Wrote data to range starting at {start_cell}")
-                    st.session_state.excel_manager.save()
-                except Exception as e:
-                    st.error(f"Error writing range: {str(e)}")
+                    # Process each keyword
+                    for match in reversed(matches):  # Process in reverse to avoid index issues
+                        keyword = match.group(0)  # Full keyword with {{}}
+                        content = match.group(1)  # Content inside {{}}
+                        
+                        # If it's an INPUT keyword, use the value from our form
+                        if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
+                            replacement = input_values[keyword]
+                        else:
+                            # For tables, don't use direct table insertion since it would be nested
+                            parser.set_word_document(None)
+                            replacement = parser.parse(keyword)
+                        
+                        # Replace the keyword in the paragraph text
+                        paragraph.text = paragraph.text[:match.start()] + str(replacement) + paragraph.text[match.end():]
+                        
+                        # Update progress
+                        processed_count += 1
+                        progress_bar.progress(processed_count / total_keywords)
+                        progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
     
-    with tab4:
-        st.subheader("Delete Operations")
+    # Ensure progress is complete
+    progress_bar.progress(1.0)
+    progress_text.text(f"Processed {processed_count} keywords.")
+    
+    # Close Excel manager
+    excel_mgr.close()
+    
+    return doc, processed_count
+
+def main():
+    st.title("Document Keyword Parser")
+    st.write("Upload a Word document and an Excel spreadsheet to replace keywords in the Word document.")
+    
+    # File upload section
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        doc_file = st.file_uploader("Upload Word Document (.docx)", type=["docx"])
+    
+    with col2:
+        excel_file = st.file_uploader("Upload Excel Spreadsheet (.xlsx)", type=["xlsx"])
+    
+    # Show keyword help
+    with st.expander("Keyword Reference Guide"):
+        parser = keywordParser()
+        st.markdown(parser.get_keyword_help())
+    
+    # Process the documents when both are uploaded
+    if doc_file and excel_file:
+        st.subheader("Processing Document")
         
-        # Delete sheet
-        if st.session_state.excel_manager:
-            sheet_names = st.session_state.excel_manager.get_sheet_names()
-            sheet_to_delete = st.selectbox("Select sheet to delete", sheet_names)
+        # Save uploaded files to temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_doc:
+            tmp_doc.write(doc_file.getvalue())
+            doc_path = tmp_doc.name
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
+            tmp_excel.write(excel_file.getvalue())
+            excel_path = tmp_excel.name
+        
+        try:
+            # Process the document
+            processed_doc, count = process_word_doc(doc_path, excel_path)
             
-            if st.button("Delete Sheet") and len(sheet_names) > 1:
-                st.session_state.excel_manager.delete_sheet(sheet_to_delete)
-                st.success(f"Deleted sheet: {sheet_to_delete}")
-                st.session_state.excel_manager.save()
-            elif len(sheet_names) <= 1:
-                st.error("Cannot delete the only sheet in the workbook.")
-    
-    with tab5:
-        st.subheader("Keyword Parser")
-        
-        # Show help information
-        with st.expander("Keyword Help"):
-            if st.session_state.keyword_parser:
-                st.markdown(st.session_state.keyword_parser.get_keyword_help())
-        
-        # Input for keyword string
-        st.subheader("Parse Keywords")
-        keyword_input = st.text_area(
-            "Enter text with keywords to parse:",
-            "Hello, the value in cell A1 is {{XL:A1}}."
-        )
-        
-        # Clear input cache option
-        if st.button("Clear Input Cache"):
-            if st.session_state.keyword_parser:
-                st.session_state.keyword_parser.clear_input_cache()
-                st.success("Input cache cleared")
-        
-        # Parse button
-        if st.button("Parse Keywords"):
-            if st.session_state.keyword_parser:
-                try:
-                    # Reset form state each time Parse is clicked
-                    st.session_state.keyword_parser.reset_form_state()
-                    
-                    st.subheader("Result:")
-                    result = st.session_state.keyword_parser.parse(keyword_input)
-                    st.write(result)
-                except Exception as e:
-                    st.error(f"Error parsing keywords: {str(e)}")
+            if count > 0:
+                # Save the processed document
+                tmp_folder = "tmp"
+                if not os.path.exists(tmp_folder):
+                    os.makedirs(tmp_folder)
+                output_path = os.path.join(tmp_folder, "processed_document.docx")
+                processed_doc.save(output_path)
+                
+                # Provide download link
+                with open(output_path, "rb") as file:
+                    st.download_button(
+                        label="Download Processed Document",
+                        data=file,
+                        file_name="processed_document.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                
+                st.success(f"Successfully processed {count} keywords!")
             else:
-                st.error("Keyword parser not initialized")
+                st.info("No keywords were processed. The document remains unchanged.")
+                
+        except Exception as e:
+            st.error(f"An error occurred during processing: {str(e)}")
+        
+        finally:
+            # Clean up temporary files
+            os.unlink(doc_path)
+            os.unlink(excel_path)
     
-    # Download the file
-    if st.session_state.file_path:
-        with open(st.session_state.file_path, "rb") as file:
-            file_name = os.path.basename(st.session_state.file_path)
-            st.download_button(
-                label="Download Excel file",
-                data=file,
-                file_name=file_name,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-else:
-    st.info("Please upload an Excel file or create a new one to start.")
+    # Additional information
+    st.markdown("---")
+    st.write("This app processes keywords in Word documents and replaces them with values from Excel.")
+
+if __name__ == "__main__":
+    main()
+    
