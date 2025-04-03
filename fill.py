@@ -257,8 +257,8 @@ def process_word_doc(doc_path, excel_path):
     return doc, processed_count
 
 def main():
-    st.title("Document Keyword Processor")
-    st.write("Upload a Word document and an Excel spreadsheet to replace keywords in the document.")
+    st.title("Document Keyword Parser")
+    st.write("Upload a Word document and an Excel spreadsheet to replace keywords in the Word document.")
     
     # File upload section
     col1, col2 = st.columns(2)
