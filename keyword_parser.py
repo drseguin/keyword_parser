@@ -322,6 +322,11 @@ class keywordParser:
         Returns:
             A formatted string representing the table.
         """
+        if self.word_document:
+            # If we have a Word document reference, create a table directly
+            return self._create_word_table(data)
+        
+        # Otherwise create a text-based table
         if not data or not isinstance(data, list):
             return "No data"
             
@@ -340,14 +345,13 @@ class keywordParser:
         for row_index, row in enumerate(data):
             row_str = []
             for i, cell in enumerate(row):
-                if i < len(col_widths):  # Make sure we don't go out of bounds
-                    cell_str = str(cell)
-                    # Right-align numbers, left-align text
-                    if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace('.', '', 1).isdigit()):
-                        formatted = cell_str.rjust(col_widths[i])
-                    else:
-                        formatted = cell_str.ljust(col_widths[i])
-                    row_str.append(formatted)
+                cell_str = str(cell)
+                # Right-align numbers, left-align text
+                if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace('.', '', 1).isdigit()):
+                    formatted = cell_str.rjust(col_widths[i])
+                else:
+                    formatted = cell_str.ljust(col_widths[i])
+                row_str.append(formatted)
             result.append(" | ".join(row_str))
             
             # Add a separator after the header row
@@ -361,7 +365,7 @@ class keywordParser:
         
     def _create_word_table(self, data):
         """
-        Create a table directly in the Word document without relying on built-in styles.
+        Create a table directly in the Word document with manually added borders.
         
         Args:
             data: A 2D list of data from Excel.
@@ -379,6 +383,44 @@ class keywordParser:
         # Create the table without specifying any style
         table = self.word_document.add_table(rows=num_rows, cols=num_cols)
         
+        # Add borders using direct XML modification
+        try:
+            from docx.oxml import parse_xml
+            from docx.oxml.ns import nsdecls
+            
+            # Set border size (in twips)
+            border_size = 4
+            
+            # Get the table XML element
+            tbl = table._tbl
+            
+            # Find or create tblPr (table properties)
+            tblPr = tbl.xpath('w:tblPr')
+            if not tblPr:
+                tblPr = parse_xml(f'<w:tblPr {nsdecls("w")}></w:tblPr>')
+                tbl.insert(0, tblPr)
+            else:
+                tblPr = tblPr[0]
+            
+            # Create borders element
+            tblBorders = parse_xml(f'<w:tblBorders {nsdecls("w")}>' +
+                f'<w:top w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
+                f'<w:left w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
+                f'<w:bottom w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
+                f'<w:right w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
+                f'<w:insideH w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
+                f'<w:insideV w:val="single" w:sz="{border_size}" w:space="0" w:color="auto"/>' +
+                '</w:tblBorders>')
+            
+            # Add or replace borders
+            existing_borders = tblPr.xpath('w:tblBorders')
+            if existing_borders:
+                tblPr.remove(existing_borders[0])
+            tblPr.append(tblBorders)
+        except Exception as e:
+            # If borders can't be added, continue without them
+            pass
+        
         # Fill the table with data
         for i, row in enumerate(data):
             for j, cell_value in enumerate(row):
@@ -392,16 +434,15 @@ class keywordParser:
                     cell = table.cell(i, j)
                     cell.text = cell_text
                     
-                    # Format header row
+                    # Format header row (first row)
                     if i == 0:
                         try:
-                            from docx.shared import Pt
                             for paragraph in cell.paragraphs:
-                                # Make header bold
+                                # Try to make header bold
                                 for run in paragraph.runs:
                                     run.bold = True
-                        except ImportError:
-                            pass  # Skip formatting if import fails
+                        except:
+                            pass  # Skip if formatting fails
                     
                     # Right-align numbers
                     try:
@@ -409,8 +450,11 @@ class keywordParser:
                         if isinstance(cell_value, (int, float)) or (isinstance(cell_value, str) and cell_value.replace('.', '', 1).isdigit()):
                             for paragraph in cell.paragraphs:
                                 paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                    except ImportError:
-                        pass  # Skip alignment if import fails
+                    except:
+                        pass  # Skip if alignment fails
+        
+        # Add a paragraph after the table for better spacing
+        self.word_document.add_paragraph()
         
         # Return a placeholder - the actual table has been added to the document
         return "[TABLE_INSERTED]"
@@ -757,4 +801,3 @@ class keywordParser:
         ```
         """
         return help_text
-    
