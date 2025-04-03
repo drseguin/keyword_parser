@@ -4,6 +4,8 @@ import os
 import streamlit as st
 from datetime import datetime
 from excel_manager import excelManager
+from docx.shared import Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 class keywordParser:
     """
@@ -23,6 +25,11 @@ class keywordParser:
         self.pattern = r'{{(.*?)}}'
         self.has_input_fields = False
         self.form_submitted = False
+        self.word_document = None
+        
+    def set_word_document(self, doc):
+        """Set the word document for direct table insertion."""
+        self.word_document = doc
         
     def parse(self, input_string):
         """
@@ -263,13 +270,25 @@ class keywordParser:
                     # Case-insensitive sheet name lookup
                     if sheet_name.lower() in sheet_name_map:
                         actual_sheet_name = sheet_name_map[sheet_name.lower()]
-                        return self.excel_manager.read_range(actual_sheet_name, cell_range)
+                        data = self.excel_manager.read_range(actual_sheet_name, cell_range)
                     else:
                         return f"[Sheet not found: {sheet_name}]"
                 else:
                     # Use the active sheet
                     sheet_name = available_sheets[0]
-                    return self.excel_manager.read_range(sheet_name, content)
+                    data = self.excel_manager.read_range(sheet_name, content)
+                
+                # Try to create a table if we have a document reference
+                if self.word_document:
+                    try:
+                        return self._create_word_table(data)
+                    except Exception as e:
+                        # If table creation fails, fall back to text formatting
+                        return self._format_table(data)
+                else:
+                    # No document reference, just format as text
+                    return self._format_table(data)
+                
             except Exception as e:
                 return f"[Error reading range: {str(e)}]"
         else:
@@ -292,6 +311,109 @@ class keywordParser:
                     return self.excel_manager.read_cell(sheet_name, content)
             except Exception as e:
                 return f"[Error reading cell: {str(e)}]"
+    
+    def _format_table(self, data):
+        """
+        Format the data as a formatted table for Word.
+        
+        Args:
+            data: A 2D list of data from Excel.
+            
+        Returns:
+            A formatted string representing the table.
+        """
+        if not data or not isinstance(data, list):
+            return "No data"
+            
+        # Calculate column widths
+        col_widths = []
+        for row in data:
+            for i, cell in enumerate(row):
+                cell_str = str(cell)
+                if i >= len(col_widths):
+                    col_widths.append(len(cell_str))
+                else:
+                    col_widths[i] = max(col_widths[i], len(cell_str))
+        
+        # Create the table as a string
+        result = []
+        for row_index, row in enumerate(data):
+            row_str = []
+            for i, cell in enumerate(row):
+                if i < len(col_widths):  # Make sure we don't go out of bounds
+                    cell_str = str(cell)
+                    # Right-align numbers, left-align text
+                    if isinstance(cell, (int, float)) or (isinstance(cell, str) and cell.replace('.', '', 1).isdigit()):
+                        formatted = cell_str.rjust(col_widths[i])
+                    else:
+                        formatted = cell_str.ljust(col_widths[i])
+                    row_str.append(formatted)
+            result.append(" | ".join(row_str))
+            
+            # Add a separator after the header row
+            if row_index == 0:
+                separator = []
+                for i, width in enumerate(col_widths):
+                    separator.append("-" * width)
+                result.append("-+-".join(separator))
+                
+        return "\n".join(result)
+        
+    def _create_word_table(self, data):
+        """
+        Create a table directly in the Word document without relying on built-in styles.
+        
+        Args:
+            data: A 2D list of data from Excel.
+            
+        Returns:
+            A placeholder text to replace the keyword.
+        """
+        if not data or not isinstance(data, list):
+            return "No data"
+            
+        # Create a new table in the Word document
+        num_rows = len(data)
+        num_cols = max(len(row) for row in data)
+        
+        # Create the table without specifying any style
+        table = self.word_document.add_table(rows=num_rows, cols=num_cols)
+        
+        # Fill the table with data
+        for i, row in enumerate(data):
+            for j, cell_value in enumerate(row):
+                if j < len(row):  # Make sure we don't go out of bounds
+                    # Format the cell value
+                    if isinstance(cell_value, (int, float)):
+                        cell_text = f"{cell_value:,}"
+                    else:
+                        cell_text = str(cell_value)
+                    
+                    cell = table.cell(i, j)
+                    cell.text = cell_text
+                    
+                    # Format header row
+                    if i == 0:
+                        try:
+                            from docx.shared import Pt
+                            for paragraph in cell.paragraphs:
+                                # Make header bold
+                                for run in paragraph.runs:
+                                    run.bold = True
+                        except ImportError:
+                            pass  # Skip formatting if import fails
+                    
+                    # Right-align numbers
+                    try:
+                        from docx.enum.text import WD_ALIGN_PARAGRAPH
+                        if isinstance(cell_value, (int, float)) or (isinstance(cell_value, str) and cell_value.replace('.', '', 1).isdigit()):
+                            for paragraph in cell.paragraphs:
+                                paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+                    except ImportError:
+                        pass  # Skip alignment if import fails
+        
+        # Return a placeholder - the actual table has been added to the document
+        return "[TABLE_INSERTED]"
     
     def _process_sum_keyword(self, content):
         """Process SUM range processing keywords."""
@@ -595,7 +717,7 @@ class keywordParser:
         {{XL:Sheet2!B5}}      # Reference with sheet name
         {{XL::A1}}            # Find total value starting at A1 (traverses down to find last non-empty cell)
         {{XL::Sheet2!B5}}     # Find total value starting at B5 in Sheet2 (traverses down to find last non-empty cell)
-        {{XL:Sales!C3:C7}}    # Range of cells (returns concatenated values or list)
+        {{XL:Sales!C3:C7}}    # Range of cells (returns formatted table)
         {{XL:named_range}}    # Named range in Excel
         ```
 
@@ -635,3 +757,4 @@ class keywordParser:
         ```
         """
         return help_text
+    

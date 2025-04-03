@@ -23,8 +23,9 @@ def process_word_doc(doc_path, excel_path):
     # Initialize Excel manager
     excel_mgr = excelManager(excel_path)
     
-    # Initialize keyword parser with the Excel manager
+    # Initialize keyword parser with the Excel manager and pass the document reference
     parser = keywordParser(excel_mgr)
+    parser.set_word_document(doc)
     
     # Compile regex pattern for keywords
     pattern = r'{{(.*?)}}'
@@ -111,31 +112,111 @@ def process_word_doc(doc_path, excel_path):
             if not submit:
                 st.stop()  # Stop execution until form is submitted
     
-    # Now process all keywords
-    # Process paragraphs
+    # List to track table placeholders
+    table_placeholders = []
+    table_placeholder_index = 0
+    
+    # Track paragraphs with Excel range keywords to handle special table insertion
+    range_paragraphs = []
+    
+    # First scan to find paragraphs containing Excel range keywords
     for paragraph in doc.paragraphs:
-        # Find all keywords in the paragraph
         matches = list(re.finditer(pattern, paragraph.text))
-        
-        # Process each keyword
-        for match in reversed(matches):  # Process in reverse to avoid index issues
-            keyword = match.group(0)  # Full keyword with {{}}
-            content = match.group(1)  # Content inside {{}}
+        for match in matches:
+            content = match.group(1)
+            parts = content.split(":", 1)
+            if parts[0].strip().upper() == "XL" and len(parts) > 1:
+                # Check if it's a range reference like A1:C3
+                if ":" in parts[1] and "!" not in parts[1].split(":", 1)[1]:
+                    # Store the paragraph for special handling
+                    if paragraph not in range_paragraphs:
+                        range_paragraphs.append(paragraph)
+    
+    # Now process all keywords in paragraphs, with special handling for range paragraphs
+    for paragraph in doc.paragraphs:
+        # If this is a range paragraph that needs special handling for table insertion
+        if paragraph in range_paragraphs:
+            # Get all keywords in this paragraph
+            matches = list(re.finditer(pattern, paragraph.text))
             
-            # If it's an INPUT keyword, use the value from our form
-            if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
-                replacement = input_values[keyword]
-            else:
-                # Otherwise parse the keyword
-                replacement = parser.parse(keyword)
-            
-            # Replace the keyword in the paragraph text
-            paragraph.text = paragraph.text[:match.start()] + str(replacement) + paragraph.text[match.end():]
-            
-            # Update progress
-            processed_count += 1
-            progress_bar.progress(processed_count / total_keywords)
-            progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
+            for match in matches:
+                keyword = match.group(0)
+                content = match.group(1)
+                parts = content.split(":", 1)
+                
+                # Process Excel range keywords
+                if parts[0].strip().upper() == "XL" and len(parts) > 1:
+                    # If it's an Excel range reference
+                    if ":" in parts[1] and "!" not in parts[1].split(":", 1)[1]:
+                        try:
+                            # Get paragraph text and position
+                            orig_text = paragraph.text
+                            start_pos = match.start()
+                            end_pos = match.end()
+                            
+                            # Parse the keyword to potentially create a table
+                            parser.set_word_document(doc)
+                            replacement = parser.parse(keyword)
+                            
+                            # If a table was inserted
+                            if replacement == "[TABLE_INSERTED]":
+                                # Update the paragraph text to remove the keyword
+                                if start_pos == 0 and end_pos == len(orig_text):
+                                    # If keyword is the entire paragraph, empty it
+                                    paragraph.text = ""
+                                else:
+                                    # Otherwise remove just the keyword
+                                    paragraph.text = orig_text[:start_pos] + orig_text[end_pos:]
+                            else:
+                                # If table insertion failed, replace with text normally
+                                paragraph.text = orig_text[:start_pos] + str(replacement) + orig_text[end_pos:]
+                        except Exception as e:
+                            # Handle errors
+                            replacement = f"[Error: {str(e)}]"
+                            paragraph.text = paragraph.text[:match.start()] + replacement + paragraph.text[match.end():]
+                        
+                        # Update progress
+                        processed_count += 1
+                        progress_bar.progress(processed_count / total_keywords)
+                        progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
+                        continue
+                
+                # Process non-range keywords normally
+                if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
+                    replacement = input_values[keyword]
+                else:
+                    parser.set_word_document(None)  # Don't use direct table insertion
+                    replacement = parser.parse(keyword)
+                
+                # Replace the keyword in the paragraph text
+                paragraph.text = paragraph.text[:match.start()] + str(replacement) + paragraph.text[match.end():]
+                
+                # Update progress
+                processed_count += 1
+                progress_bar.progress(processed_count / total_keywords)
+                progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
+        else:
+            # This is a regular paragraph, process normally
+            matches = list(re.finditer(pattern, paragraph.text))
+            for match in reversed(matches):  # Process in reverse to avoid index issues
+                keyword = match.group(0)  # Full keyword with {{}}
+                content = match.group(1)  # Content inside {{}}
+                
+                # If it's an INPUT keyword, use the value from our form
+                if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
+                    replacement = input_values[keyword]
+                else:
+                    # Otherwise parse the keyword normally
+                    parser.set_word_document(None)  # Don't use direct table insertion
+                    replacement = parser.parse(keyword)
+                
+                # Replace the keyword in the paragraph text
+                paragraph.text = paragraph.text[:match.start()] + str(replacement) + paragraph.text[match.end():]
+                
+                # Update progress
+                processed_count += 1
+                progress_bar.progress(processed_count / total_keywords)
+                progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
     
     # Process tables
     for table in doc.tables:
@@ -154,7 +235,8 @@ def process_word_doc(doc_path, excel_path):
                         if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
                             replacement = input_values[keyword]
                         else:
-                            # Otherwise parse the keyword
+                            # For tables, don't use direct table insertion since it would be nested
+                            parser.set_word_document(None)
                             replacement = parser.parse(keyword)
                         
                         # Replace the keyword in the paragraph text
@@ -244,3 +326,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
