@@ -93,7 +93,7 @@ class keywordParser:
     
     def _create_input_field(self, content):
         """
-        Create an appropriate input field based on the keyword type.
+        Create an appropriate input field based on the INPUT keyword.
         
         Args:
             content: The content inside the {{ }} brackets.
@@ -104,30 +104,114 @@ class keywordParser:
         if not content:
             return "[Invalid input reference]"
         
-        # Split the content into tokens. Expected format: "input_type:default value".
-        # Recognized input types are 'date', 'select', and 'text'.
-        tokens = content.split(":", 1)
-        recognized_types = ["date", "select", "text"]
-        if len(tokens) == 1 or tokens[0].strip().lower() not in recognized_types:
-            # Legacy format or missing type; default to text input
-            input_type = "text"
-            default_value = tokens[0].strip()
-        else:
-            input_type = tokens[0].strip().lower()
-            default_value = tokens[1].strip() if len(tokens) > 1 else ""
+        # Split the content into tokens
+        tokens = content.split(":")
+        if len(tokens) < 2:
+            return "[Invalid INPUT format]"
         
+        # Get the keyword type (INPUT) and input type (text, area, date, select, check)
+        keyword_type = tokens[0].strip().upper()
+        input_type = tokens[1].strip().lower() if len(tokens) > 1 else ""
+        
+        # Check for valid INPUT keyword
+        if keyword_type != "INPUT":
+            return "[Invalid INPUT keyword]"
+        
+        # Handle text input - {{INPUT:text:label:value}}
         if input_type == "text":
-            return st.text_input("Enter text", value=default_value)
+            label = tokens[2] if len(tokens) > 2 else ""
+            default_value = tokens[3] if len(tokens) > 3 else ""
+            return st.text_input(
+                label=label, 
+                value=default_value, 
+                label_visibility="visible"
+            )
+        
+        # Handle text area - {{INPUT:area:label:value}}
+        elif input_type == "area":
+            label = tokens[2] if len(tokens) > 2 else ""
+            default_value = tokens[3] if len(tokens) > 3 else ""
+            return st.text_area(
+                label=label, 
+                value=default_value, 
+                label_visibility="visible"
+            )
+        
+        # Handle date input - {{INPUT:date:label:value:format}}
         elif input_type == "date":
-            date_value = st.date_input("Select a date")
-            return date_value.strftime("%b %d, %Y")
+            label = tokens[2] if len(tokens) > 2 else ""
+            default_value = tokens[3] if len(tokens) > 3 else "today"
+            date_format = tokens[4] if len(tokens) > 4 else "YYYY/MM/DD"
+            
+            # Handle "today" default value
+            import datetime
+            if default_value.lower() == "today":
+                default_date = datetime.date.today()
+            else:
+                try:
+                    # Try to parse the date based on the format
+                    if date_format == "YYYY/MM/DD":
+                        default_date = datetime.datetime.strptime(default_value, "%Y/%m/%d").date()
+                    elif date_format == "DD/MM/YYYY":
+                        default_date = datetime.datetime.strptime(default_value, "%d/%m/%Y").date()
+                    elif date_format == "MM/DD/YYYY":
+                        default_date = datetime.datetime.strptime(default_value, "%m/%d/%Y").date()
+                    else:
+                        # Default to ISO format if format is not recognized
+                        default_date = datetime.datetime.strptime(default_value, "%Y-%m-%d").date()
+                except ValueError:
+                    default_date = datetime.date.today()
+            
+            date_value = st.date_input(
+                label=label,
+                value=default_date,
+                label_visibility="visible"
+            )
+            
+            # Return the date in the requested format
+            if date_format == "YYYY/MM/DD":
+                return date_value.strftime("%Y/%m/%d")
+            elif date_format == "DD/MM/YYYY":
+                return date_value.strftime("%d/%m/%Y")
+            elif date_format == "MM/DD/YYYY":
+                return date_value.strftime("%m/%d/%Y")
+            else:
+                return date_value.strftime("%Y/%m/%d")  # Default format
+        
+        # Handle select box - {{INPUT:select:label:options}}
         elif input_type == "select":
-            # For select input, default_value contains comma-separated options
-            options = [opt.strip() for opt in default_value.split(",")]
-            return st.selectbox("Select an option", options)
+            label = tokens[2] if len(tokens) > 2 else ""
+            options_str = tokens[3] if len(tokens) > 3 else ""
+            
+            # Parse options (comma-separated)
+            options = [opt.strip() for opt in options_str.split(",")] if options_str else []
+            
+            if not options:
+                return "[No options provided]"
+            
+            return st.selectbox(
+                label=label,
+                options=options,
+                label_visibility="visible"
+            )
+        
+        # Handle checkbox - {{INPUT:check:label:value}}
+        elif input_type == "check":
+            label = tokens[2] if len(tokens) > 2 else ""
+            default_value_str = tokens[3].lower() if len(tokens) > 3 else "false"
+            
+            # Convert string value to boolean
+            default_value = default_value_str == "true"
+            
+            return st.checkbox(
+                label=label,
+                value=default_value,
+                label_visibility="visible"
+            )
+        
+        # Default for unrecognized input types
         else:
-            # Default to text input
-            return st.text_input("Enter text", value=default_value)
+            return f"[Unsupported input type: {input_type}]"
     
     def _process_keyword(self, content):
         """
@@ -173,13 +257,28 @@ class keywordParser:
     def _process_input_keyword(self, params):
         """Process INPUT keywords directly if needed."""
         # This is a fallback method in case an INPUT keyword wasn't processed in the form
-        field_name = params.split(":")[0] if ":" in params else params
+        input_parts = params.split(":")
+        input_type = input_parts[0].lower() if input_parts else ""
         
-        if "date:" in params.lower():
-            return datetime.now().strftime("%b %d, %Y")
-        elif "select:" in params.lower():
-            options = params.split("select:")[1].split(",")
+        if input_type == "text" or input_type == "area":
+            label = input_parts[1] if len(input_parts) > 1 else ""
+            default_value = input_parts[2] if len(input_parts) > 2 else ""
+            return default_value
+        
+        elif input_type == "date":
+            import datetime
+            today = datetime.date.today()
+            return today.strftime("%Y/%m/%d")
+        
+        elif input_type == "select":
+            options_str = input_parts[2] if len(input_parts) > 2 else ""
+            options = [opt.strip() for opt in options_str.split(",")] if options_str else []
             return options[0] if options else ""
+        
+        elif input_type == "check":
+            default_value_str = input_parts[2].lower() if len(input_parts) > 2 else "false"
+            return default_value_str == "true"
+        
         else:
             return params if params else "[Input value]"
     
@@ -741,9 +840,13 @@ class keywordParser:
 
         ### User Input Keywords
         ```
-        {{INPUT:text:default value}}         # Basic text input (with default value)
-        {{INPUT:date:YYYY-MM-DD}}              # Date input with format
-        {{INPUT:select:option1,option2,option3}} # Dropdown selection
+        {{INPUT:text:label:value}}              # Text input with label and default value
+        {{INPUT:area:label:value}}              # Text area (multi-line) with label and default value
+        {{INPUT:date:label:value:format}}       # Date input with label, default date and format
+                                               # Format can be "YYYY/MM/DD", "DD/MM/YYYY", or "MM/DD/YYYY"
+                                               # Default value can be "today" or a date matching the format
+        {{INPUT:select:label:option1,option2}}  # Dropdown selection with label and comma-separated options
+        {{INPUT:check:label:True}}              # Checkbox with label and default state (True/False)
         ```
 
         ### Range Processing
