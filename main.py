@@ -82,41 +82,80 @@ def process_word_doc(doc_path, excel_path):
                             input_keywords.append(keyword)
                             input_locations.append(("table_cell", paragraph, match.start(), match.end()))
     
+    # Store if we have any input keywords
+    has_inputs = len(input_keywords) > 0
+    
     # If there are input keywords, process them all at once
     input_values = {}
-    if input_keywords:
+    
+    # Create a form state storage key
+    form_key = f"form_processed_{hash(str(input_keywords))}"
+    if form_key not in st.session_state:
+        st.session_state[form_key] = False
+        
+    if has_inputs and not st.session_state[form_key]:
         with st.form(key="document_input_form"):
             st.subheader("Please provide values for input fields:")
             
-            for keyword in input_keywords:
+            for i, keyword in enumerate(input_keywords):
                 # Extract the field name for better labels
                 content = re.match(pattern, keyword).group(1)
-                parts = content.split(":", 1)
-                field_name = parts[0].strip().replace("INPUT:", "")
+                parts = content.split(":")
                 
-                # Create appropriate input fields
-                if len(parts) > 1 and "select:" in parts[1]:
-                    options = parts[1].split("select:")[1].split(",")
-                    options = [opt.strip() for opt in options]
-                    value = st.selectbox(f"Select for {field_name}", options)
-                elif len(parts) > 1 and "date:" in parts[1]:
-                    value = st.date_input(f"Date for {field_name}")
-                    value = value.strftime("%Y-%m-%d")
+                # Generate a unique key for this input field
+                unique_key = f"input_{i}_{hash(keyword)}"
+                
+                # Create appropriate input field based on the content
+                if len(parts) > 1:
+                    input_type = parts[1].strip().lower()
+                    label = parts[2] if len(parts) > 2 else f"Input {i+1}"
+                    default = parts[3] if len(parts) > 3 else ""
+                    
+                    if input_type == "text":
+                        value = st.text_input(label, value=default, key=unique_key)
+                    elif input_type == "area":
+                        value = st.text_area(label, value=default, key=unique_key)
+                    elif input_type == "date":
+                        import datetime
+                        if default.lower() == "today":
+                            default_date = datetime.date.today()
+                        else:
+                            try:
+                                default_date = datetime.datetime.strptime(default, "%Y/%m/%d").date()
+                            except ValueError:
+                                default_date = datetime.date.today()
+                        
+                        date_value = st.date_input(label, value=default_date, key=unique_key)
+                        value = date_value.strftime("%Y/%m/%d")
+                    elif input_type == "select":
+                        options_str = default
+                        options = [opt.strip() for opt in options_str.split(",")] if options_str else ["Option 1"]
+                        value = st.selectbox(label, options, key=unique_key)
+                    elif input_type == "check":
+                        default_bool = default.lower() == "true"
+                        value = st.checkbox(label, value=default_bool, key=unique_key)
+                    else:
+                        value = st.text_input(label, value=default, key=unique_key)
                 else:
-                    default = parts[1].strip() if len(parts) > 1 else ""
-                    value = st.text_input(f"Enter {field_name}", value=default)
+                    value = st.text_input(f"Input {i+1}", key=unique_key)
                 
                 input_values[keyword] = value
             
             submit = st.form_submit_button("Submit")
-            if not submit:
-                st.stop()  # Stop execution until form is submitted
+            if submit:
+                st.session_state[form_key] = True
+            else:
+                st.info("Please fill in all fields and click Submit to continue.")
+                return None, 0  # Return None to indicate form is not submitted yet
     
-    # List to track table placeholders
-    table_placeholders = []
-    table_placeholder_index = 0
+    # If we have inputs but form wasn't submitted yet, stop here
+    if has_inputs and not st.session_state[form_key]:
+        return None, 0
     
-    # Track paragraphs with Excel range keywords to handle special table insertion
+    # We're now ready to process the document
+    progress_text.text("Processing keywords...")
+    
+    # Track paragraphs with Excel range keywords
     range_paragraphs = []
     
     # First scan to find paragraphs containing Excel range keywords
@@ -181,10 +220,12 @@ def process_word_doc(doc_path, excel_path):
                         progress_text.text(f"Processing keywords: {processed_count}/{total_keywords}")
                         continue
                 
-                # Process non-range keywords normally
+                # Process non-range keywords
+                # If it's an INPUT keyword, use the value from our form
                 if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
                     replacement = input_values[keyword]
                 else:
+                    # Otherwise parse the keyword normally
                     parser.set_word_document(None)  # Don't use direct table insertion
                     replacement = parser.parse(keyword)
                 
@@ -235,7 +276,7 @@ def process_word_doc(doc_path, excel_path):
                         if content.split(":", 1)[0].strip().upper() == "INPUT" and keyword in input_values:
                             replacement = input_values[keyword]
                         else:
-                            # For tables, don't use direct table insertion since it would be nested
+                            # For tables, don't use direct table insertion
                             parser.set_word_document(None)
                             replacement = parser.parse(keyword)
                         
@@ -274,51 +315,84 @@ def main():
         parser = keywordParser()
         st.markdown(parser.get_keyword_help())
     
+    # Initialize session state for tracking processing status
+    if 'processing_complete' not in st.session_state:
+        st.session_state.processing_complete = False
+    if 'output_path' not in st.session_state:
+        st.session_state.output_path = None
+    if 'processed_count' not in st.session_state:
+        st.session_state.processed_count = 0
+    
     # Process the documents when both are uploaded
     if doc_file and excel_file:
         st.subheader("Processing Document")
         
-        # Save uploaded files to temporary location
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_doc:
-            tmp_doc.write(doc_file.getvalue())
-            doc_path = tmp_doc.name
+        # Create a reset button to allow reprocessing
+        if st.button("Reset Processing"):
+            st.session_state.processing_complete = False
+            st.session_state.output_path = None
+            st.session_state.processed_count = 0
+            for key in list(st.session_state.keys()):
+                if key.startswith("form_processed_"):
+                    del st.session_state[key]
+            st.rerun()
         
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
-            tmp_excel.write(excel_file.getvalue())
-            excel_path = tmp_excel.name
-        
-        try:
-            # Process the document
-            processed_doc, count = process_word_doc(doc_path, excel_path)
+        # Only process if not already completed
+        if not st.session_state.processing_complete:
+            # Save uploaded files to temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_doc:
+                tmp_doc.write(doc_file.getvalue())
+                doc_path = tmp_doc.name
             
-            if count > 0:
-                # Save the processed document
-                tmp_folder = "tmp"
-                if not os.path.exists(tmp_folder):
-                    os.makedirs(tmp_folder)
-                output_path = os.path.join(tmp_folder, "processed_document.docx")
-                processed_doc.save(output_path)
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
+                tmp_excel.write(excel_file.getvalue())
+                excel_path = tmp_excel.name
+            
+            try:
+                # Process the document
+                processed_doc, count = process_word_doc(doc_path, excel_path)
                 
-                # Provide download link
-                with open(output_path, "rb") as file:
-                    st.download_button(
-                        label="Download Processed Document",
-                        data=file,
-                        file_name="processed_document.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    )
+                # If processed_doc is None, it means the form is waiting for submission
+                if processed_doc is None:
+                    return
                 
-                st.success(f"Successfully processed {count} keywords!")
-            else:
-                st.info("No keywords were processed. The document remains unchanged.")
-                
-        except Exception as e:
-            st.error(f"An error occurred during processing: {str(e)}")
+                if count > 0:
+                    # Save the processed document
+                    tmp_folder = "tmp"
+                    if not os.path.exists(tmp_folder):
+                        os.makedirs(tmp_folder)
+                    output_path = os.path.join(tmp_folder, "processed_document.docx")
+                    processed_doc.save(output_path)
+                    
+                    # Store the results in session state
+                    st.session_state.processing_complete = True
+                    st.session_state.output_path = output_path
+                    st.session_state.processed_count = count
+                else:
+                    st.info("No keywords were processed. The document remains unchanged.")
+                    
+            except Exception as e:
+                st.error(f"An error occurred during processing: {str(e)}")
+            
+            finally:
+                # Clean up temporary files
+                if 'doc_path' in locals():
+                    os.unlink(doc_path)
+                if 'excel_path' in locals():
+                    os.unlink(excel_path)
         
-        finally:
-            # Clean up temporary files
-            os.unlink(doc_path)
-            os.unlink(excel_path)
+        # If processing is complete, show download button
+        if st.session_state.processing_complete and st.session_state.output_path:
+            st.success(f"Successfully processed {st.session_state.processed_count} keywords!")
+            
+            # Provide download link
+            with open(st.session_state.output_path, "rb") as file:
+                st.download_button(
+                    label="Download Processed Document",
+                    data=file,
+                    file_name="processed_document.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
     
     # Additional information
     st.markdown("---")
