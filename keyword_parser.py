@@ -855,7 +855,7 @@ class keywordParser:
         {{XL::A1}}            # Find total value starting at A1 (traverses down to find last non-empty cell)
         {{XL::Sheet2!B5}}     # Find total value starting at B5 in Sheet2 (traverses down to find last non-empty cell)
         {{XL:Sales!C3:C7}}    # Range of cells (returns formatted table)
-        {{XL:named_range}}    # Named range in Excel
+        {{XL:named_range}}    # Named range in Excel (vertical range)
         ```
 
         ### User Input Keywords
