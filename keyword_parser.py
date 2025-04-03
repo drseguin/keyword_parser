@@ -104,34 +104,30 @@ class keywordParser:
         if not content:
             return "[Invalid input reference]"
         
-        # Split the content by colon to check for input type and options
-        parts = content.split(":", 1)
-        field_name = parts[0].strip().replace("INPUT", "").strip(": ")
-        
-        # Handle different input types based on the content
-        if len(parts) == 1 or not parts[1]:
-            # Basic text input with no default
-            return st.text_input(f"{field_name}")
-        
-        # Get the input type and parameters
-        input_params = parts[1].strip()
-        
-        # Check if this is a date input
-        if input_params.upper().startswith("DATE"):
-            date_value = st.date_input(f"{field_name}")
-            # Format date as human readable
-            return date_value.strftime("%b %d, %Y")
-        
-        # Check if this is a select input
-        elif input_params.startswith("select:"):
-            options_str = input_params[7:].strip()
-            options = [opt.strip() for opt in options_str.split(",")]
-            return st.selectbox(f"{field_name}", options)
-        
-        # Default case: text input with default value
+        # Split the content into tokens. Expected format: "input_type:default value".
+        # Recognized input types are 'date', 'select', and 'text'.
+        tokens = content.split(":", 1)
+        recognized_types = ["date", "select", "text"]
+        if len(tokens) == 1 or tokens[0].strip().lower() not in recognized_types:
+            # Legacy format or missing type; default to text input
+            input_type = "text"
+            default_value = tokens[0].strip()
         else:
-            default_value = input_params
-            return st.text_input(f"{field_name}", value=default_value)
+            input_type = tokens[0].strip().lower()
+            default_value = tokens[1].strip() if len(tokens) > 1 else ""
+        
+        if input_type == "text":
+            return st.text_input("Enter text", value=default_value)
+        elif input_type == "date":
+            date_value = st.date_input("Select a date")
+            return date_value.strftime("%b %d, %Y")
+        elif input_type == "select":
+            # For select input, default_value contains comma-separated options
+            options = [opt.strip() for opt in default_value.split(",")]
+            return st.selectbox("Select an option", options)
+        else:
+            # Default to text input
+            return st.text_input("Enter text", value=default_value)
     
     def _process_keyword(self, content):
         """
@@ -745,10 +741,9 @@ class keywordParser:
 
         ### User Input Keywords
         ```
-        {{INPUT:field_name}}          # Basic text input
-        {{INPUT:field_name:default}}  # With default value
-        {{INPUT:date:YYYY-MM-DD}}     # Date input with format
-        {{INPUT:select:option1,option2,option3}}  # Dropdown selection
+        {{INPUT:text:default value}}         # Basic text input (with default value)
+        {{INPUT:date:YYYY-MM-DD}}              # Date input with format
+        {{INPUT:select:option1,option2,option3}} # Dropdown selection
         ```
 
         ### Range Processing
