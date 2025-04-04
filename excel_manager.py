@@ -672,3 +672,118 @@ class excelManager:
         
         # Now find the total in this column
         return self.read_total(sheet_name, title_cell_ref)
+    
+    def read_columns(self, sheet_name, input_cells, use_titles=False, start_row=None):
+        """
+        Read multiple columns from a sheet and append them side by side.
+        
+        Parameters:
+        - sheet_name: The name of the sheet to read from
+        - input_cells: Either a comma-separated string of cell references or column titles,
+                      or a list of cell references or column titles
+        - use_titles: If True, treat input_cells as column titles to search for.
+                     If False, treat input_cells as cell references.
+        - start_row: Row number to start searching for titles (only used if use_titles is True)
+                    If not provided and use_titles is True, defaults to 1
+        
+        Returns:
+        - A 2D list with the requested columns appended side by side
+        """
+        if not self.workbook:
+            self.logger.error("No workbook loaded")
+            raise ValueError("No workbook loaded")
+        
+        if sheet_name not in self.workbook.sheetnames:
+            self.logger.error(f"Sheet does not exist: {sheet_name}")
+            raise ValueError(f"Sheet does not exist: {sheet_name}")
+        
+        # Get the sheet from the data_only workbook to read calculated values
+        sheet = self.workbook[sheet_name]
+        
+        # Process input_cells as a comma-separated string or a list
+        if isinstance(input_cells, str):
+            cells_list = [cell.strip() for cell in input_cells.split(',')]
+        elif isinstance(input_cells, list):
+            cells_list = input_cells
+        else:
+            self.logger.error("input_cells must be a comma-separated string or a list")
+            raise ValueError("input_cells must be a comma-separated string or a list")
+        
+        # List to store column data
+        columns_data = []
+        column_headers = []
+        
+        # Process each cell or title
+        for cell_or_title in cells_list:
+            if use_titles:
+                # Find column by title
+                if start_row is None:
+                    title_row = 1  # Default to the first row if not specified
+                else:
+                    title_row = start_row
+                
+                # Find the column with the matching title
+                max_col = sheet.max_column
+                title_col = None
+                
+                for col in range(1, max_col + 1):
+                    cell_value = sheet.cell(row=title_row, column=col).value
+                    
+                    # Check if the cell value matches the title (case-insensitive)
+                    if cell_value and isinstance(cell_value, str) and cell_value.lower() == cell_or_title.lower():
+                        title_col = col
+                        break
+                
+                if title_col is None:
+                    self.logger.warning(f"Title '{cell_or_title}' not found in row {title_row} in sheet {sheet_name}")
+                    continue
+                
+                column_headers.append(cell_or_title)
+                # Start reading from the row below the title
+                start_cell_ref = f"{get_column_letter(title_col)}{title_row + 1}"
+                
+                # Read items from this column
+                items = self.read_items(sheet_name, start_cell_ref)
+                columns_data.append(items)
+                
+            else:
+                # Process as cell reference
+                sheet_ref, row, col = self._parse_cell_reference(cell_or_title, sheet_name)
+                
+                # Get the column header value (from the specified cell)
+                header_value = sheet.cell(row=row, column=col).value
+                column_headers.append(header_value)
+                
+                # Read items from this column, starting from the cell below
+                start_cell_ref = f"{get_column_letter(col)}{row + 1}"
+                
+                # Read items from this column
+                items = self.read_items(sheet_name, start_cell_ref)
+                columns_data.append(items)
+        
+        # Determine the maximum length of all columns
+        max_length = max([len(col) for col in columns_data]) if columns_data else 0
+        
+        # Make all columns the same length by padding with empty strings
+        padded_columns = []
+        for col in columns_data:
+            padded_col = col + [''] * (max_length - len(col))
+            padded_columns.append(padded_col)
+        
+        # Add headers as the first row
+        result = [column_headers]
+        
+        # Transpose the data to have rows instead of columns
+        for i in range(max_length):
+            row_data = []
+            for col in padded_columns:
+                row_data.append(col[i] if i < len(col) else '')
+            result.append(row_data)
+        
+        if use_titles:
+            log_message = f"Read {len(columns_data)} columns by titles: {', '.join(cells_list)} in sheet {sheet_name}"
+        else:
+            log_message = f"Read {len(columns_data)} columns from cells: {', '.join(cells_list)} in sheet {sheet_name}"
+        
+        self.logger.info(log_message)
+        return result
