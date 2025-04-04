@@ -3,25 +3,152 @@ import os
 import re
 import docx
 import tempfile
+import time
 from excel_manager import excelManager
 from keyword_parser import keywordParser
+from collections import Counter
 
-def process_word_doc(doc_path, excel_path):
+def preprocess_word_doc(doc_path):
+    """
+    Analyze a Word document to determine what keywords it contains.
+    
+    Args:
+        doc_path: Path to the Word document
+        
+    Returns:
+        Dictionary with keyword counts and whether Excel file is needed
+    """
+    # Load the document
+    doc = docx.Document(doc_path)
+    
+    # Compile regex pattern for keywords
+    pattern = r'{{(.*?)}}'
+    
+    # Track keyword types and counts
+    keywords = {
+        "excel": [],
+        "input": {
+            "text": [],
+            "area": [],
+            "date": [],
+            "select": [],
+            "check": []
+        },
+        "template": [],
+        "json": [],
+        "other": []
+    }
+    
+    # Track if Excel file is needed
+    needs_excel = False
+    
+    # Total keyword count
+    total_keywords = 0
+    
+    # Scan paragraphs for keywords
+    for para_idx, paragraph in enumerate(doc.paragraphs):
+        matches = list(re.finditer(pattern, paragraph.text))
+        total_keywords += len(matches)
+        
+        for match in matches:
+            content = match.group(1)  # Content inside {{}}
+            parts = content.split(":", 1)
+            keyword_type = parts[0].strip().upper()
+            
+            if keyword_type == "XL":
+                needs_excel = True
+                keywords["excel"].append(content)
+            elif keyword_type == "SUM" or keyword_type == "AVG":
+                if len(parts) > 1 and parts[1].strip().upper().startswith("XL:"):
+                    needs_excel = True
+                keywords["excel"].append(content)
+            elif keyword_type == "INPUT":
+                if len(parts) > 1:
+                    input_parts = parts[1].split(":")
+                    input_type = input_parts[0].lower() if input_parts else "text"
+                    
+                    if input_type in keywords["input"]:
+                        keywords["input"][input_type].append(content)
+                    else:
+                        keywords["input"]["text"].append(content)
+            elif keyword_type == "TEMPLATE":
+                keywords["template"].append(content)
+            elif keyword_type == "JSON":
+                keywords["json"].append(content)
+            else:
+                keywords["other"].append(content)
+    
+    # Scan tables for keywords
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    matches = list(re.finditer(pattern, paragraph.text))
+                    total_keywords += len(matches)
+                    
+                    for match in matches:
+                        content = match.group(1)  # Content inside {{}}
+                        parts = content.split(":", 1)
+                        keyword_type = parts[0].strip().upper()
+                        
+                        if keyword_type == "XL":
+                            needs_excel = True
+                            keywords["excel"].append(content)
+                        elif keyword_type == "SUM" or keyword_type == "AVG":
+                            if len(parts) > 1 and parts[1].strip().upper().startswith("XL:"):
+                                needs_excel = True
+                            keywords["excel"].append(content)
+                        elif keyword_type == "INPUT":
+                            if len(parts) > 1:
+                                input_parts = parts[1].split(":")
+                                input_type = input_parts[0].lower() if input_parts else "text"
+                                
+                                if input_type in keywords["input"]:
+                                    keywords["input"][input_type].append(content)
+                                else:
+                                    keywords["input"]["text"].append(content)
+                        elif keyword_type == "TEMPLATE":
+                            keywords["template"].append(content)
+                        elif keyword_type == "JSON":
+                            keywords["json"].append(content)
+                        else:
+                            keywords["other"].append(content)
+    
+    # Prepare summary
+    summary = {
+        "total_keywords": total_keywords,
+        "excel_count": len(keywords["excel"]),
+        "input_counts": {k: len(v) for k, v in keywords["input"].items()},
+        "template_count": len(keywords["template"]),
+        "json_count": len(keywords["json"]),
+        "other_count": len(keywords["other"]),
+        "needs_excel": needs_excel,
+        "keywords": keywords
+    }
+    
+    return summary
+
+def process_word_doc(doc_path, excel_path=None):
     """
     Process a Word document, replacing keywords with values from Excel spreadsheet.
     
     Args:
         doc_path: Path to the Word document
-        excel_path: Path to the Excel spreadsheet
+        excel_path: Path to the Excel spreadsheet (optional)
         
     Returns:
         Processed document object and a count of replaced keywords
+        
+    Note:
+        If form is waiting for submission, returns (None, 0)
     """
     # Load the document
     doc = docx.Document(doc_path)
     
-    # Initialize Excel manager
-    excel_mgr = excelManager(excel_path)
+    # Initialize Excel manager if needed
+    excel_mgr = None
+    if excel_path:
+        excel_mgr = excelManager(excel_path)
     
     # Initialize keyword parser with the Excel manager and pass the document reference
     parser = keywordParser(excel_mgr)
@@ -152,9 +279,12 @@ def process_word_doc(doc_path, excel_path):
             
             submit = st.form_submit_button("Submit")
             if submit:
+                # Mark the form as submitted in session state
                 st.session_state[form_key] = True
                 # Store the input values in session state for persistence
                 st.session_state[f"input_values_{doc_path}"] = input_values
+                # Force a rerun to continue processing after form submission
+                st.rerun()
             else:
                 st.info("Please fill in all fields and click Submit to continue.")
                 return None, 0  # Return None to indicate form is not submitted yet
@@ -344,68 +474,188 @@ def process_word_doc(doc_path, excel_path):
     progress_bar.progress(1.0)
     progress_text.text(f"Processed {processed_count} keywords.")
     
-    # Close Excel manager
-    excel_mgr.close()
+    # Close Excel manager if it was created
+    if excel_mgr:
+        excel_mgr.close()
     
     return doc, processed_count
 
-def main():
-    st.title("Document Keyword Parser")
-    st.write("Upload a Word document and an Excel spreadsheet to replace keywords in the Word document.")
+def display_keyword_summary(summary):
+    """
+    Display a summary of the keywords found in the document.
     
-    # File upload section
+    Args:
+        summary: Dictionary with keyword counts and information
+    """
+    st.subheader("Document Analysis Summary")
+    
+    # Total keywords
+    st.write(f"📄 Total keywords found: **{summary['total_keywords']}**")
+    
+    # Create columns for the different keyword types
     col1, col2 = st.columns(2)
     
     with col1:
-        doc_file = st.file_uploader("Upload Word Document (.docx)", type=["docx"])
+        # Excel keywords
+        if summary["excel_count"] > 0:
+            st.write(f"📊 Excel references: **{summary['excel_count']}**")
+            st.write("*An Excel spreadsheet will be required.*")
+        else:
+            st.write("📊 Excel references: **0** (no spreadsheet needed)")
+            
+        # Template keywords
+        if summary["template_count"] > 0:
+            st.write(f"📝 Template references: **{summary['template_count']}**")
+            
+        # JSON keywords
+        if summary["json_count"] > 0:
+            st.write(f"🔄 JSON references: **{summary['json_count']}**")
+            
+        # Other keywords
+        if summary["other_count"] > 0:
+            st.write(f"🔣 Other keywords: **{summary['other_count']}**")
     
     with col2:
-        excel_file = st.file_uploader("Upload Excel Spreadsheet (.xlsx)", type=["xlsx"])
+        # Input keywords
+        total_inputs = sum(summary["input_counts"].values())
+        if total_inputs > 0:
+            st.write(f"✏️ Input fields: **{total_inputs}**")
+            
+            # Break down by input type
+            for input_type, count in summary["input_counts"].items():
+                if count > 0:
+                    icon = {
+                        "text": "📝",
+                        "area": "📄",
+                        "date": "📅",
+                        "select": "🔽",
+                        "check": "✓"
+                    }.get(input_type, "•")
+                    
+                    st.write(f"  {icon} {input_type.capitalize()}: **{count}**")
+
+def main():
+    st.title("Document Keyword Parser")
+    st.write("Upload a Word document and process keywords based on document analysis.")
     
     # Show keyword help
     with st.expander("Keyword Reference Guide"):
         parser = keywordParser()
         st.markdown(parser.get_keyword_help())
     
+    # File upload section - initially just for Word document
+    doc_file = st.file_uploader("Upload Word Document (.docx)", type=["docx"])
+    
     # Initialize session state for tracking processing status
+    if 'preprocessing_complete' not in st.session_state:
+        st.session_state.preprocessing_complete = False
+    if 'preprocessing_results' not in st.session_state:
+        st.session_state.preprocessing_results = None
     if 'processing_complete' not in st.session_state:
         st.session_state.processing_complete = False
     if 'output_path' not in st.session_state:
         st.session_state.output_path = None
     if 'processed_count' not in st.session_state:
         st.session_state.processed_count = 0
+    if 'doc_path' not in st.session_state:
+        st.session_state.doc_path = None
     
-    # Process the documents when both are uploaded
-    if doc_file and excel_file:
-        st.subheader("Processing Document")
+    # Process the Word document for analysis when uploaded
+    if doc_file and not st.session_state.preprocessing_complete:
+        st.subheader("Analyzing Document")
         
-        # Create a reset button to allow reprocessing
-        if st.button("Reset Processing"):
-            st.session_state.processing_complete = False
-            st.session_state.output_path = None
-            st.session_state.processed_count = 0
-            for key in list(st.session_state.keys()):
-                if key.startswith("form_processed_") or key.startswith("input_values_"):
-                    del st.session_state[key]
-            st.rerun()
+        # Save uploaded file to temporary location
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_doc:
+            tmp_doc.write(doc_file.getvalue())
+            doc_path = tmp_doc.name
+            st.session_state.doc_path = doc_path
         
-        # Only process if not already completed
-        if not st.session_state.processing_complete:
-            # Save uploaded files to temporary location
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_doc:
-                tmp_doc.write(doc_file.getvalue())
-                doc_path = tmp_doc.name
+        try:
+            # Show progress bar for preprocessing
+            preprocessing_progress = st.progress(0)
+            preprocessing_text = st.empty()
+            preprocessing_text.text("Analyzing document content...")
             
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
-                tmp_excel.write(excel_file.getvalue())
-                excel_path = tmp_excel.name
+            # Simulate progress (visual feedback for the user)
+            for i in range(10):
+                preprocessing_progress.progress(i/10)
+                time.sleep(0.1)
+            
+            # Preprocess the document
+            summary = preprocess_word_doc(doc_path)
+            
+            # Complete the progress bar
+            preprocessing_progress.progress(1.0)
+            preprocessing_text.text("Analysis complete!")
+            
+            # Store the results
+            st.session_state.preprocessing_complete = True
+            st.session_state.preprocessing_results = summary
+            
+            # Force refresh to show results
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"An error occurred during analysis: {str(e)}")
+    
+    # If preprocessing is complete, show results and continue
+    if st.session_state.preprocessing_complete and st.session_state.preprocessing_results:
+        # Display summary of keywords found
+        display_keyword_summary(st.session_state.preprocessing_results)
+        
+        # Reset button - show only if not in the middle of processing
+        if not st.session_state.get('process_clicked') or st.session_state.get('processing_complete'):
+            if st.button("Reset Analysis"):
+                # Clear session state
+                for key in list(st.session_state.keys()):
+                    if key != "keyword_help":  # Keep the help text
+                        del st.session_state[key]
+                st.rerun()
+        
+        # Continue with processing
+        st.subheader("Process Document")
+        
+        # Check if Excel file is needed based on preprocessing
+        needs_excel = st.session_state.preprocessing_results["needs_excel"]
+        
+        # If Excel needed, show Excel upload
+        excel_file = None
+        if needs_excel:
+            excel_file = st.file_uploader("Upload Excel Spreadsheet (.xlsx)", type=["xlsx"])
+            if not excel_file:
+                st.warning("An Excel spreadsheet is required based on the keywords found in your document.")
+                return
+        
+        # Initialize or retrieve the processing state
+        if 'process_clicked' not in st.session_state:
+            st.session_state.process_clicked = False
+        
+        # Process button
+        if st.button("Process Document") or st.session_state.process_clicked:
+            st.session_state.process_clicked = True
+            
+            # Check if we can continue
+            if needs_excel and not excel_file:
+                st.error("Please upload an Excel spreadsheet to continue.")
+                return
+            
+            # Process the document
+            st.subheader("Processing Document")
+            
+            # Save Excel file if needed
+            excel_path = None
+            if excel_file:
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_excel:
+                    tmp_excel.write(excel_file.getvalue())
+                    excel_path = tmp_excel.name
             
             try:
                 # Process the document
-                processed_doc, count = process_word_doc(doc_path, excel_path)
+                processed_doc, count = process_word_doc(st.session_state.doc_path, excel_path)
                 
                 # If processed_doc is None, it means the form is waiting for submission
                 if processed_doc is None:
+                    st.info("Please complete the form and click Submit to continue.")
                     return
                 
                 if count > 0:
@@ -420,6 +670,16 @@ def main():
                     st.session_state.processing_complete = True
                     st.session_state.output_path = output_path
                     st.session_state.processed_count = count
+                    
+                    # Show success message and download button immediately
+                    st.success(f"Successfully processed {count} keywords!")
+                    with open(output_path, "rb") as file:
+                        st.download_button(
+                            label="Download Processed Document",
+                            data=file,
+                            file_name="processed_document.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
                 else:
                     st.info("No keywords were processed. The document remains unchanged.")
                     
@@ -427,28 +687,36 @@ def main():
                 st.error(f"An error occurred during processing: {str(e)}")
             
             finally:
-                # Clean up temporary files
-                if 'doc_path' in locals():
-                    os.unlink(doc_path)
-                if 'excel_path' in locals():
-                    os.unlink(excel_path)
+                # Clean up temporary Excel file
+                if 'excel_path' in locals() and excel_path and excel_path is not None:
+                    try:
+                        os.unlink(excel_path)
+                    except Exception as e:
+                        st.error(f"Error cleaning up temporary file: {str(e)}")
         
-        # If processing is complete, show download button
-        if st.session_state.processing_complete and st.session_state.output_path:
-            st.success(f"Successfully processed {st.session_state.processed_count} keywords!")
-            
-            # Provide download link
-            with open(st.session_state.output_path, "rb") as file:
-                st.download_button(
-                    label="Download Processed Document",
-                    data=file,
-                    file_name="processed_document.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
+        # This section is now handled inside the processing logic to ensure 
+        # the download button appears immediately after form submission
     
     # Additional information
     st.markdown("---")
-    st.write("This app processes keywords in Word documents and replaces them with values from Excel.")
+    st.write("This app processes keywords in Word documents and replaces them with values from various sources.")
+    
+    # Clean up temporary files when the app is closed
+    def cleanup():
+        if 'doc_path' in st.session_state and st.session_state.doc_path:
+            try:
+                os.unlink(st.session_state.doc_path)
+            except:
+                pass
+        if 'output_path' in st.session_state and st.session_state.output_path:
+            try:
+                os.unlink(st.session_state.output_path)
+            except:
+                pass
+    
+    # Register the cleanup function to be called when the script exits
+    import atexit
+    atexit.register(cleanup)
 
 if __name__ == "__main__":
     main()
