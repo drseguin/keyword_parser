@@ -21,7 +21,7 @@ def preprocess_word_doc(doc_path):
     # Load the document
     doc = docx.Document(doc_path)
     
-    # Compile regex pattern for keywords
+    # Compile regex pattern for keywords - properly enclosed in double curly braces
     pattern = r'{{(.*?)}}'
     
     # Track keyword types and counts
@@ -75,7 +75,7 @@ def preprocess_word_doc(doc_path):
                 keywords["template"].append(content)
             elif keyword_type == "JSON":
                 keywords["json"].append(content)
-            else:
+            elif keyword_type:  # Only add to other if it's a non-empty keyword type
                 keywords["other"].append(content)
     
     # Scan tables for keywords
@@ -111,7 +111,7 @@ def preprocess_word_doc(doc_path):
                             keywords["template"].append(content)
                         elif keyword_type == "JSON":
                             keywords["json"].append(content)
-                        else:
+                        elif keyword_type:  # Only add to other if it's a non-empty keyword type
                             keywords["other"].append(content)
     
     # Prepare summary
@@ -523,9 +523,30 @@ def display_keyword_summary(summary):
         
         # COLUMN 4: JSON Keywords
         with col4:
-            st.markdown("**JSON/Other Keywords**")
-            st.write(f"JSON: {summary['json_count']}")
-            st.write(f"Other: {summary['other_count']}")
+            st.markdown("**JSON Keywords**")
+            st.write(f"Total: {summary['json_count']}")
+            
+            # Show details about "Other" keywords if any exist
+            if summary['other_count'] > 0:
+                st.markdown("**Other Keywords**")
+                st.write(f"Total: {summary['other_count']}")
+                
+                # If we have details about what these "other" keywords are, show them
+                if 'keywords' in summary and 'other' in summary['keywords'] and summary['keywords']['other']:
+                    # Extract unique keyword types from the "other" category
+                    other_types = {}
+                    for keyword in summary['keywords']['other']:
+                        # Extract the keyword type (before first colon)
+                        parts = keyword.split(':', 1)
+                        keyword_type = parts[0].strip().upper()
+                        if keyword_type in other_types:
+                            other_types[keyword_type] += 1
+                        else:
+                            other_types[keyword_type] = 1
+                    
+                    # Display each type and count
+                    for keyword_type, count in other_types.items():
+                        st.write(f"{keyword_type}: {count}")
 
 def main():
     st.title("Document Keyword Parser")
