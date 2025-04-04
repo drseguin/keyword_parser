@@ -605,3 +605,70 @@ class excelManager:
         
         return items
     
+    def read_title_total(self, sheet_name, row_or_cell, title, column=None):
+        """
+        Find a column with a matching case-insensitive title, then get the total value from that column.
+        
+        Can be called in two ways:
+        - read_title_total(sheet_name, 'A1', 'Revenue') - using cell reference
+        - read_title_total(sheet_name, 1, 2, 'Revenue') - using row and column numbers
+        
+        Parameters:
+        - sheet_name: The name of the sheet to read from
+        - row_or_cell: Either a cell reference string (e.g., "A1") or a row number
+        - title: The column title to search for (case-insensitive)
+        - column: Optional column number (required if row_or_cell is a row number)
+        
+        Returns:
+        - The total value from the column with the matching title
+        """
+        if not self.workbook:
+            self.logger.error("No workbook loaded")
+            raise ValueError("No workbook loaded")
+        
+        # Get the row and column based on the input parameters
+        if column is None:
+            # Assume row_or_cell is a cell reference like 'A1'
+            if not isinstance(row_or_cell, str):
+                self.logger.error("Cell reference must be a string")
+                raise ValueError("Cell reference must be a string")
+            
+            sheet_ref, start_row, start_col = self._parse_cell_reference(row_or_cell, sheet_name)
+            sheet_name = sheet_ref  # Use the sheet name from the reference if provided
+        else:
+            # Using row and column numbers
+            start_row = row_or_cell
+            start_col = column
+            title = title  # In this case, title is the last parameter
+        
+        if sheet_name not in self.workbook.sheetnames:
+            self.logger.error(f"Sheet does not exist: {sheet_name}")
+            raise ValueError(f"Sheet does not exist: {sheet_name}")
+        
+        # Get the sheet from the data_only workbook to read calculated values
+        sheet = self.workbook[sheet_name]
+        
+        # Determine the maximum column to search
+        max_col = sheet.max_column
+        
+        # Start from the given cell and traverse right to find the title
+        title_col = None
+        for col in range(start_col, max_col + 1):
+            cell_value = sheet.cell(row=start_row, column=col).value
+            
+            # Check if the cell value matches the title (case-insensitive)
+            if cell_value and isinstance(cell_value, str) and cell_value.lower() == title.lower():
+                title_col = col
+                break
+        
+        if title_col is None:
+            self.logger.warning(f"Title '{title}' not found in row {start_row} starting from column {start_col} in sheet {sheet_name}")
+            return None
+        
+        # Once the title column is found, use read_total to get the total value
+        title_cell_ref = f"{get_column_letter(title_col)}{start_row + 1}"  # Start from the cell below the title
+        
+        self.logger.info(f"Found title '{title}' at column {get_column_letter(title_col)} in sheet {sheet_name}")
+        
+        # Now find the total in this column
+        return self.read_total(sheet_name, title_cell_ref)
