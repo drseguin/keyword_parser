@@ -255,13 +255,6 @@ class keywordParser:
             params = parts[1] if len(parts) > 1 else ""
             return self._process_input_keyword(params)
             
-        # Process range processing keywords
-        elif keyword_type == "SUM":
-            return self._process_sum_keyword(parts[1] if len(parts) > 1 else "")
-            
-        elif keyword_type == "AVG":
-            return self._process_avg_keyword(parts[1] if len(parts) > 1 else "")
-            
         # Process template keywords
         elif keyword_type == "TEMPLATE":
             return self._process_template_keyword(parts[1] if len(parts) > 1 else "")
@@ -549,113 +542,6 @@ class keywordParser:
         # Return a placeholder - the actual table has been added to the document
         return "[TABLE_INSERTED]"
     
-    def _process_sum_keyword(self, content):
-        """Process SUM range processing keywords."""
-        if not content:
-            return "[Invalid SUM range]"
-            
-        try:
-            # Handle Excel ranges
-            if content.startswith("XL:"):
-                range_ref = content[3:]
-                
-                # Get available sheet names for case-insensitive comparison
-                available_sheets = self.excel_manager.get_sheet_names()
-                sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
-                
-                # Handle sheet references
-                if "!" in range_ref:
-                    parts = range_ref.split("!")
-                    sheet_name = parts[0].strip("'")  # Remove single quotes
-                    cell_range = parts[1]
-                    
-                    # Case-insensitive sheet name lookup
-                    if sheet_name.lower() in sheet_name_map:
-                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
-                    else:
-                        return f"[Sheet not found: {sheet_name}]"
-                else:
-                    actual_sheet_name = available_sheets[0]
-                    cell_range = range_ref
-                
-                # Read the range
-                values = self.excel_manager.read_range(actual_sheet_name, cell_range)
-                
-                # Flatten the list and sum numeric values
-                flat_values = [item for sublist in values for item in sublist]
-                numeric_values = []
-                
-                for value in flat_values:
-                    try:
-                        # Handle currency formatting
-                        if isinstance(value, str) and '$' in value:
-                            value = float(value.replace('$', '').replace(',', ''))
-                        numeric_values.append(float(value))
-                    except (ValueError, TypeError):
-                        pass
-                        
-                return sum(numeric_values)
-            
-            return "[Unsupported SUM reference]"
-            
-        except Exception as e:
-            return f"[Error in SUM: {str(e)}]"
-    
-    def _process_avg_keyword(self, content):
-        """Process AVG range processing keywords."""
-        if not content:
-            return "[Invalid AVG range]"
-            
-        try:
-            # Handle Excel ranges
-            if content.startswith("XL:"):
-                range_ref = content[3:]
-                
-                # Get available sheet names for case-insensitive comparison
-                available_sheets = self.excel_manager.get_sheet_names()
-                sheet_name_map = {sheet.lower(): sheet for sheet in available_sheets}
-                
-                # Handle sheet references
-                if "!" in range_ref:
-                    parts = range_ref.split("!")
-                    sheet_name = parts[0].strip("'")  # Remove single quotes
-                    cell_range = parts[1]
-                    
-                    # Case-insensitive sheet name lookup
-                    if sheet_name.lower() in sheet_name_map:
-                        actual_sheet_name = sheet_name_map[sheet_name.lower()]
-                    else:
-                        return f"[Sheet not found: {sheet_name}]"
-                else:
-                    actual_sheet_name = available_sheets[0]
-                    cell_range = range_ref
-                
-                # Read the range
-                values = self.excel_manager.read_range(actual_sheet_name, cell_range)
-                
-                # Flatten the list and calculate average of numeric values
-                flat_values = [item for sublist in values for item in sublist]
-                numeric_values = []
-                
-                for value in flat_values:
-                    try:
-                        # Handle currency formatting
-                        if isinstance(value, str) and '$' in value:
-                            value = float(value.replace('$', '').replace(',', ''))
-                        numeric_values.append(float(value))
-                    except (ValueError, TypeError):
-                        pass
-                        
-                if not numeric_values:
-                    return 0
-                    
-                return sum(numeric_values) / len(numeric_values)
-            
-            return "[Unsupported AVG reference]"
-            
-        except Exception as e:
-            return f"[Error in AVG: {str(e)}]"
-    
     def _process_template_keyword(self, content):
         """Process template keywords."""
         if not content:
@@ -867,12 +753,6 @@ class keywordParser:
                                                # Default value can be "today" or a date matching the format
         {{INPUT:select:label:option1,option2}}  # Dropdown selection with label and comma-separated options
         {{INPUT:check:label:True}}              # Checkbox with label and default state (True/False)
-        ```
-
-        ### Range Processing
-        ```
-        {{SUM:XL:A1:A10}}             # Sum of range
-        {{AVG:XL:Sheet1!B1:B10}}      # Average of range
         ```
 
         ### Template Keywords
