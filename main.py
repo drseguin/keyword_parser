@@ -487,56 +487,57 @@ def display_keyword_summary(summary):
     Args:
         summary: Dictionary with keyword counts and information
     """
-    st.subheader("Document Analysis Summary")
+    # Display total keywords outside the expander
+    st.write(f"Total keywords found: **{summary['total_keywords']}**")
     
-    # Total keywords
-    st.write(f"📄 Total keywords found: **{summary['total_keywords']}**")
-    
-    # Create columns for the different keyword types
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Excel keywords
-        if summary["excel_count"] > 0:
-            st.write(f"📊 Excel references: **{summary['excel_count']}**")
-            st.write("*An Excel spreadsheet will be required.*")
-        else:
-            st.write("📊 Excel references: **0** (no spreadsheet needed)")
+    # Show detailed breakdown in an expander
+    with st.expander("Document Analysis Summary"):
+        # Create 4 columns for the different keyword types
+        col1, col2, col3, col4 = st.columns(4)
+        
+        # COLUMN 1: Excel Keywords
+        with col1:
+            st.markdown("**Excel Keywords**")
+            if summary["excel_count"] > 0:
+                st.write(f"Total: {summary['excel_count']}")
+                st.write("*Excel spreadsheet required*")
+            else:
+                st.write("Total: 0")
+        
+        # COLUMN 2: User Input Keywords
+        with col2:
+            st.markdown("**User Input Keywords**")
+            total_inputs = sum(summary["input_counts"].values())
+            st.write(f"Total: {total_inputs}")
             
-        # Template keywords
-        if summary["template_count"] > 0:
-            st.write(f"📝 Template references: **{summary['template_count']}**")
-            
-        # JSON keywords
-        if summary["json_count"] > 0:
-            st.write(f"🔄 JSON references: **{summary['json_count']}**")
-            
-        # Other keywords
-        if summary["other_count"] > 0:
-            st.write(f"🔣 Other keywords: **{summary['other_count']}**")
-    
-    with col2:
-        # Input keywords
-        total_inputs = sum(summary["input_counts"].values())
-        if total_inputs > 0:
-            st.write(f"✏️ Input fields: **{total_inputs}**")
-            
-            # Break down by input type
-            for input_type, count in summary["input_counts"].items():
-                if count > 0:
-                    icon = {
-                        "text": "📝",
-                        "area": "📄",
-                        "date": "📅",
-                        "select": "🔽",
-                        "check": "✓"
-                    }.get(input_type, "•")
-                    
-                    st.write(f"  {icon} {input_type.capitalize()}: **{count}**")
+            # List all input types, even if zero
+            input_types = ["text", "area", "date", "select", "check"]
+            for input_type in input_types:
+                count = summary["input_counts"].get(input_type, 0)
+                st.write(f"{input_type}: {count}")
+        
+        # COLUMN 3: Template Keywords
+        with col3:
+            st.markdown("**Template Keywords**")
+            st.write(f"Total: {summary['template_count']}")
+        
+        # COLUMN 4: JSON Keywords
+        with col4:
+            st.markdown("**JSON/Other Keywords**")
+            st.write(f"JSON: {summary['json_count']}")
+            st.write(f"Other: {summary['other_count']}")
 
 def main():
     st.title("Document Keyword Parser")
     st.write("Upload a Word document and process keywords based on document analysis.")
+    
+    # Add a more detailed description
+    st.markdown("""
+    This tool analyzes your Word document for keywords and processes them accordingly:
+    * Automatically detects what types of keywords are present
+    * Only asks for Excel upload when needed
+    * Handles user input fields, template references, and more
+    """)
     
     # Show keyword help
     with st.expander("Keyword Reference Guide"):
@@ -600,8 +601,12 @@ def main():
     
     # If preprocessing is complete, show results and continue
     if st.session_state.preprocessing_complete and st.session_state.preprocessing_results:
-        # Display summary of keywords found
-        display_keyword_summary(st.session_state.preprocessing_results)
+        # Use a container for the summary to keep it together visually
+        with st.container():
+            # Display summary of keywords found with a small divider above
+            st.markdown("---")
+            display_keyword_summary(st.session_state.preprocessing_results)
+            st.markdown("---")
         
         # Reset button - show only if not in the middle of processing
         if not st.session_state.get('process_clicked') or st.session_state.get('processing_complete'):
