@@ -364,7 +364,7 @@ def main():
                            submitted = st.form_submit_button("Submit Inputs")
                            if submitted:
                                 # Store the submitted values based on their content definition
-                                st.session_state.input_values_main = {content: st.session_state[f"form_{content}"] for content in unique_input_contents}
+                                st.session_state.input_values_main = {content: st.session_state.get(f"form_{content}", "") for content in unique_input_contents}
                                 st.session_state.form_submitted_main = True
                                 # Update the parser's internal values for the processing step
                                 parser.input_values = {}
