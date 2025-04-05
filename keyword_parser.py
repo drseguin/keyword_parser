@@ -3,7 +3,7 @@ import re
 import json
 import os
 import streamlit as st
-from datetime import datetime
+from datetime import date, datetime
 from excel_manager import excelManager
 from docx.shared import Pt, Cm
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -180,21 +180,21 @@ class keywordParser:
 
             # Handle "today" default value
             if default_value_str.lower() == "today":
-                default_date = datetime.date.today()
+                default_date = date.today()
             else:
                 try:
                     # Try to parse the date based on the format
                     if date_format == "YYYY/MM/DD":
-                        default_date = datetime.datetime.strptime(default_value_str, "%Y/%m/%d").date()
+                        default_date = datetime.strptime(default_value_str, "%Y/%m/%d").date()
                     elif date_format == "DD/MM/YYYY":
-                        default_date = datetime.datetime.strptime(default_value_str, "%d/%m/%Y").date()
+                        default_date = datetime.strptime(default_value_str, "%d/%m/%Y").date()
                     elif date_format == "MM/DD/YYYY":
-                        default_date = datetime.datetime.strptime(default_value_str, "%m/%d/%Y").date()
+                        default_date = datetime.strptime(default_value_str, "%m/%d/%Y").date()
                     else:
                         # Default to ISO format if format is not recognized
-                        default_date = datetime.datetime.strptime(default_value_str, "%Y-%m-%d").date()
+                        default_date = datetime.strptime(default_value_str, "%Y-%m-%d").date()
                 except ValueError:
-                    default_date = datetime.date.today()
+                    default_date = date.today()
 
             date_value = st.date_input(
                 label=label,
@@ -288,7 +288,6 @@ class keywordParser:
              return self._process_excel_keyword(f"RANGE!{content}")
             # return f"[Unknown keyword type: {keyword_type}]"
 
-
     def _process_input_keyword(self, params):
         """Process INPUT keywords directly if needed (fallback). Uses '!' separator."""
         input_parts = params.split("!") # Use '!' separator
@@ -300,8 +299,8 @@ class keywordParser:
             return default_value
 
         elif input_type == "date":
-            import datetime
-            today = datetime.date.today()
+            # Use already imported datetime modules correctly
+            today = date.today()
             return today.strftime("%Y/%m/%d")
 
         elif input_type == "select":
@@ -893,4 +892,4 @@ class keywordParser:
             * `JOIN(delimiter)`: Join array items with a delimiter. (`{{JSON!data.json!$.names!JOIN(,)}}`)
             * `BOOL(YesText/NoText)`: Transform boolean to custom text. (`{{JSON!config.json!$.enabled!BOOL(Active/Inactive)}}`)
         """
-        return help_text
+        return help_text 
